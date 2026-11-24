@@ -1,26 +1,25 @@
 import SwiftUI
 @preconcurrency import KSPlayer
 
-/// 章末视频 / 短剧单集播放器（b54：修正 KSPlayer 集成层级）。
+/// 章末视频 / 短剧单集播放器（b58：全屏改由 SwiftUI 呈现）。
 ///
-/// b53 的教训：KSVideoPlayer.Coordinator.makeView 返回的是
-/// KSMEPlayer 的裸 Metal 渲染视图（videoOutput），控制条根本不在这层——
-/// 所以满屏黑、无任何控件。控制条在上层的 IOSVideoPlayerView。
-///
-/// b54 直接宿主 IOSVideoPlayerView（UIKit，iOS 13+，SwiftUI 的
-/// KSVideoPlayerView 要 iOS 16 用不了）：
-/// - 自带完整控制条：播放/暂停、拖动、倍速菜单、字幕选择、音轨切换
-/// - 自带长按 2x 倍速（松手恢复）
-/// - 自带横屏全屏：点控制条右上角按钮，视图自动 reparent 进
-///   PlayerFullScreenViewController（真旋转、动画），退出自动还原位置；
-///   也可以程序触发 landscapeButton.sendActions 主动全屏
-/// - playTimeDidChange / PlayerControllerDelegate 回传时长与播放错误，
-///   保留「流式失败 → 自动回退整文件下载」的降级链路
-/// - KSOptions.isAutoPlay = false：点击播放才开始，不自动响
+/// 演进史：
+/// - b54：修好控制条（宿主 IOSVideoPlayerView），但全屏用 KSPlayer 自带的
+///   PlayerFullScreenViewController —— 它会从 SwiftUI 阅读页的宿主控制器里
+///   present 一个 UIKit 全屏 VC，退出后偶发残留，吞掉整个界面的点击
+///   （表现：返回列表后点哪都没反应，得再点一次才进）；而且全屏时播放器视图被
+///   reparent 出 SwiftUI 层级，回来时 ScrollView 复位到章首。
+/// - b58：全屏完全改由 SwiftUI `fullScreenCover` 呈现——
+///   * 阅读页始终挂载，滚动位置天然不丢；
+///   * 不再有 UIKit VC 残留，点击卡死根治；
+///   * 全屏页自带「旋转」按钮（强制横屏 / 竖屏切换）与关闭按钮，行为可控；
+///   * 内嵌与全屏共用同一个 KSPlayerLayer（同一个播放实例），交接时只是把
+///     layer 换给另一个视图，不会双音轨。
+/// - 另外：中间播放按钮从图标原始大小放大到 76pt（KSPlayer 默认没有尺寸约束）。
 struct LNVideoView: View {
     let item: LNMediaItem
     let source: any LNLibrarySource
-    /// 全屏播放结束（退出全屏）回调：阅读页靠它把滚动位置拉回视频处
+    /// 全屏关闭回调：阅读页靠它把滚动位置拉回视频处（章尾）
     var onFullscreenEnd: (() -> Void)? = nil
 
     @State private var box = LNKSPlayerBox()
@@ -33,6 +32,8 @@ struct LNVideoView: View {
     @State private var streamError: String?
     /// 是否允许流式（回退一次后关闭，避免死循环）
     @State private var allowStreaming = true
+    /// SwiftUI 全屏呈现
+    @State private var showFullscreen = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -55,7 +56,8 @@ struct LNVideoView: View {
             }
             if let url, let options {
                 LNKSPlayerHost(box: box, url: url, options: options,
-                               autoFullscreenOnPlay: shouldAutoFullscreen)
+                               autoFullscreenOnPlay: shouldAutoFullscreen,
+                               onRequestFullscreen: requestFullscreen)
                     .frame(height: 240)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             } else if !failed {
@@ -77,10 +79,9 @@ struct LNVideoView: View {
                         .foregroundStyle(.secondary)
                 }
                 Button {
-                    // 触发 KSPlayer 原生横屏全屏（reparent + 真旋转，退出自动还原）
-                    box.view?.landscapeButton.sendActions(for: .touchUpInside)
+                    requestFullscreen()
                 } label: {
-                    Image(systemName: "rectangle.expand.vertical")
+                    Label("全屏", systemImage: "rectangle.expand.vertical")
                         .font(.caption)
                         .foregroundStyle(ReadingTheme.accent)
                 }
@@ -93,8 +94,19 @@ struct LNVideoView: View {
                 if duration != total { duration = total }
             }
             box.onFinishError = { handlePlaybackError($0) }
-            box.onFullscreenEnd = { onFullscreenEnd?() }
+            box.onRequestFullscreen = { requestFullscreen() }
         }
+        .fullScreenCover(isPresented: $showFullscreen, onDismiss: {
+            // 退出全屏：把滚动位置拉回视频处（章尾），避免阅读页回到章首
+            onFullscreenEnd?()
+        }) {
+            LNKSPlayerFullscreen(box: box, title: item.fileName)
+        }
+    }
+
+    private func requestFullscreen() {
+        guard box.view?.playerLayer != nil else { return }
+        showFullscreen = true
     }
 
     /// 点击播放自动全屏——只对视频生效，音频（mp3/m4a/flac 等）不弹全屏。
@@ -174,12 +186,12 @@ struct LNVideoView: View {
 
 /// 桥接 IOSVideoPlayerView 回调的小盒子（weak delegate 的持有方）。
 final class LNKSPlayerBox: NSObject, PlayerControllerDelegate {
-    /// 当前宿主的播放器视图（用于程序触发横屏全屏）
+    /// 当前内嵌宿主的播放器视图（全屏接管 layer 时用它找回内嵌视图）
     weak var view: LNPlayerView?
     var onDuration: ((Double) -> Void)?
     var onFinishError: ((Error?) -> Void)?
-    /// 全屏退出回调（用于阅读页把滚动位置拉回视频处，避免回到章首）
-    var onFullscreenEnd: (() -> Void)?
+    /// 请求进入全屏（SwiftUI 侧置 showFullscreen = true）
+    var onRequestFullscreen: (() -> Void)?
 
     func playerController(state _: KSPlayerState) {}
     func playerController(currentTime _: TimeInterval, totalTime: TimeInterval) {
@@ -196,20 +208,45 @@ final class LNKSPlayerBox: NSObject, PlayerControllerDelegate {
 }
 
 /// KSPlayer 播放器视图定制：
-/// 1. 内嵌（竖屏）时 KSPlayer 默认隐藏横屏按钮——这里强制显示，让用户随时能全屏；
-/// 2. 首次播放（用户点播放后才可能进入 .bufferFinished，因为 isAutoPlay=false）
-///    自动进入全屏（可通过 autoFullscreenOnPlay 关闭，音频不启用）；
-/// 3. 全屏进出回调给上层（退出后阅读页可拉回滚动位置）。
+/// 1. 中间播放按钮放大到 76pt（KSPlayer 默认靠图标原尺寸，小卡片里几乎看不清）；
+/// 2. 横屏按钮接管为「请求 SwiftUI 全屏」——不再走 KSPlayer 的 UIKit 全屏
+///    （那个会残留全屏控制器吞掉后续点击，还会让阅读页滚动复位）；
+/// 3. 竖屏内嵌下常显横屏/倍速/字幕按钮；
+/// 4. 首次播放（用户点播放后 → .bufferFinished，因为 isAutoPlay=false）自动请求全屏。
 final class LNPlayerView: IOSVideoPlayerView {
     var autoFullscreenOnPlay = false
-    var onFullscreenChanged: ((Bool) -> Void)?
+    var onRequestFullscreen: (() -> Void)?
 
     private var didAutoFullscreen = false
-    private var isInFullscreen = false
+
+    /// makeUIView 里调用：一次性配置
+    func configure() {
+        // 顶栏返回键不做任何事，避免误触发阅读页导航返回
+        backBlock = {}
+
+        // 中间大播放按钮：默认没有尺寸约束，只有图标本身大小，太小了
+        replayButton.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            replayButton.widthAnchor.constraint(equalToConstant: 76),
+            replayButton.heightAnchor.constraint(equalToConstant: 76),
+        ])
+        replayButton.layer.cornerRadius = 38
+        let symbol = UIImage.SymbolConfiguration(pointSize: 32, weight: .semibold)
+        replayButton.setPreferredSymbolConfiguration(symbol, forImageIn: .normal)
+        replayButton.setPreferredSymbolConfiguration(symbol, forImageIn: .selected)
+
+        // 接管横屏按钮：KSPlayer 的原生全屏会和 SwiftUI 阅读页打架
+        landscapeButton.removeTarget(nil, action: nil, for: .allEvents)
+        landscapeButton.addTarget(self, action: #selector(handleFullscreenTap), for: .touchUpInside)
+    }
+
+    @objc private func handleFullscreenTap() {
+        onRequestFullscreen?()
+    }
 
     override func updateUI(isLandscape: Bool) {
         super.updateUI(isLandscape: isLandscape)
-        // KSPlayer 竖屏内嵌下会隐藏横屏/倍速/字幕按钮；统一常显，
+        // KSPlayer 竖屏内嵌下会隐藏这些按钮；统一常显，
         // 小卡片里也能随时全屏、调倍速、选字幕
         landscapeButton.isHidden = false
         toolBar.playbackRateButton.isHidden = false
@@ -218,38 +255,26 @@ final class LNPlayerView: IOSVideoPlayerView {
         }
     }
 
-    override func updateUI(isFullScreen: Bool) {
-        super.updateUI(isFullScreen: isFullScreen)
-        guard isInFullscreen != isFullScreen else { return }
-        isInFullscreen = isFullScreen
-        onFullscreenChanged?(isFullScreen)
-    }
-
     override func player(layer: KSPlayerLayer, state: KSPlayerState) {
         super.player(layer: layer, state: state)
         guard state == .bufferFinished, autoFullscreenOnPlay, !didAutoFullscreen else { return }
         didAutoFullscreen = true
-        // 等画面真正出来再进全屏，避免全屏后先看到长时间黑屏
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            guard let self, !self.isInFullscreen, self.window != nil else { return }
-            self.updateUI(isFullScreen: true)
-        }
+        onRequestFullscreen?()
     }
 }
 
-/// UIKit 播放器宿主：IOSVideoPlayerView 自带控制条与全屏逻辑。
+/// 内嵌宿主：自带控制条的 IOSVideoPlayerView。
 struct LNKSPlayerHost: UIViewRepresentable {
     let box: LNKSPlayerBox
     let url: URL
     let options: KSOptions
     /// 视频类内容才自动全屏（音频不弹全屏）
     let autoFullscreenOnPlay: Bool
+    let onRequestFullscreen: () -> Void
 
     func makeUIView(context _: Context) -> LNPlayerView {
         let playerView = LNPlayerView()
-        // 顶栏返回键在非全屏时不做任何事，避免误触发阅读页导航返回
-        playerView.backBlock = {}
+        playerView.configure()
         playerView.set(url: url, options: options)
         playerView.delegate = box
         playerView.playTimeDidChange = { _, total in
@@ -257,14 +282,7 @@ struct LNKSPlayerHost: UIViewRepresentable {
             box.onDuration?(total)
         }
         playerView.autoFullscreenOnPlay = autoFullscreenOnPlay
-        playerView.onFullscreenChanged = { [weak box] isFull in
-            // 退出全屏后留一点时间等 dismiss 动画与视图回收，再拉回滚动位置
-            guard !isFull else { return }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                box?.onFullscreenEnd?()
-            }
-        }
+        playerView.onRequestFullscreen = onRequestFullscreen
         // KSSlider 把 thumb 区域放大了 ±20pt，默认白色 thumb 在小卡片里
         // 就是一颗顶着左边缘的大圆点；隐藏 thumb，进度由轨道填充色表达
         playerView.toolBar.timeSlider.setThumbImage(UIImage(), for: .normal)
@@ -281,9 +299,102 @@ struct LNKSPlayerHost: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ playerView: LNPlayerView, coordinator _: ()) {
-        // 阅读页滚走/退出时停播；全屏 reparent 不走 dismantle，不影响播放
+        // 阅读页滚走/退出时停播
         Task { @MainActor in
             playerView.pause()
         }
+    }
+}
+
+/// 全屏宿主：接管内嵌播放器的 KSPlayerLayer（同一播放实例，无双音轨）。
+/// 退出时把 layer 交还内嵌视图，delegate 与画面一起回位。
+struct LNKSFullscreenHost: UIViewRepresentable {
+    let box: LNKSPlayerBox
+
+    final class Coordinator {
+        let box: LNKSPlayerBox
+        init(box: LNKSPlayerBox) { self.box = box }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(box: box) }
+
+    func makeUIView(context _: Context) -> LNPlayerView {
+        let playerView = LNPlayerView()
+        playerView.configure()
+        playerView.autoFullscreenOnPlay = false
+        if let layer = box.view?.playerLayer {
+            // 接管：KSPlayerLayer 会把画面视图搬进新宿主、delegate 指向新视图
+            playerView.playerLayer = layer
+        }
+        return playerView
+    }
+
+    func updateUIView(_ view: LNPlayerView, context _: Context) {}
+
+    static func dismantleUIView(_ playerView: LNPlayerView, coordinator: Coordinator) {
+        Task { @MainActor in
+            guard let layer = playerView.playerLayer else { return }
+            // 先还给内嵌视图（delegate/画面回位），再释放全屏引用
+            if let embedded = coordinator.box.view {
+                embedded.playerLayer = layer
+            }
+            playerView.playerLayer = nil
+        }
+    }
+}
+
+/// SwiftUI 全屏播放页：黑色背景 + 播放器接管 + 右上角旋转/关闭按钮。
+/// 旋转按钮直接切换系统方向（强制横屏 ↔ 竖屏），是肉眼可见的真旋转。
+private struct LNKSPlayerFullscreen: View {
+    let box: LNKSPlayerBox
+    let title: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var forcedLandscape = false
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            LNKSFullscreenHost(box: box)
+                .ignoresSafeArea()
+        }
+        .overlay(alignment: .topTrailing) {
+            HStack(spacing: 12) {
+                Button {
+                    forcedLandscape.toggle()
+                    ReaderScreenOrientation.apply(forcedLandscape ? "2" : "1")
+                } label: {
+                    Image(systemName: forcedLandscape
+                          ? "arrow.down.right.and.arrow.up.left"
+                          : "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .background(Color.black.opacity(0.45), in: Circle())
+                }
+                .accessibilityLabel(forcedLandscape ? "切回竖屏" : "横屏旋转")
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .background(Color.black.opacity(0.45), in: Circle())
+                }
+                .accessibilityLabel("退出全屏")
+            }
+            .padding(.top, 10)
+            .padding(.trailing, 16)
+        }
+        .onAppear {
+            // 全屏播放页里允许自由旋转（跟手转），点按钮则强制横/竖
+            ReaderScreenOrientation.apply("0")
+        }
+        .onDisappear {
+            ReaderScreenOrientation.restoreApplicationDefault()
+        }
+        .statusBar(hidden: true)
     }
 }
