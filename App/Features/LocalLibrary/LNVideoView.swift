@@ -100,7 +100,7 @@ struct LNVideoView: View {
             // 退出全屏：把滚动位置拉回视频处（章尾），避免阅读页回到章首
             onFullscreenEnd?()
         }) {
-            LNKSPlayerFullscreen(box: box, title: item.fileName)
+            LNKSPlayerFullscreen(box: box, url: url, options: options, title: item.fileName)
         }
     }
 
@@ -221,8 +221,20 @@ final class LNPlayerView: IOSVideoPlayerView {
 
     /// makeUIView 里调用：一次性配置
     func configure() {
-        // 顶栏返回键不做任何事，避免误触发阅读页导航返回
+        // 顶栏返回键不做事，且阅读页有自己的返回 → 直接隐藏（用户反馈：点了没反应）
         backBlock = {}
+        backButton.isHidden = true
+
+        // 画中画按钮图标在深色场景下渲染异常（只剩个怪框），
+        // 且我们的全屏是 SwiftUI cover，PiP 意义不大 → 隐藏
+        toolBar.pipButton.isHidden = true
+
+        // 进度条 thumb：KSPlayer 的 addConstraint() 会把 thumb 设成 circle.fill，
+        // 再叠加 KSSlider.thumbRect 的 ±20pt 放大 → 左边缘一颗大白圆点。
+        // 注意必须放在 init 之后（configure 在 makeUIView 里调用），否则会被盖回去；
+        // 内嵌/全屏两个宿主都要生效，所以放这里而不是各自 makeUIView。
+        toolBar.timeSlider.setThumbImage(UIImage(), for: .normal)
+        toolBar.timeSlider.setThumbImage(UIImage(), for: .highlighted)
 
         // 中间大播放按钮：默认没有尺寸约束，只有图标本身大小，太小了
         replayButton.translatesAutoresizingMaskIntoConstraints = false
@@ -257,6 +269,18 @@ final class LNPlayerView: IOSVideoPlayerView {
 
     override func player(layer: KSPlayerLayer, state: KSPlayerState) {
         super.player(layer: layer, state: state)
+        // 中间播放按钮显隐自己兜底保证一次：
+        // 上游逻辑依赖状态回调链，全屏接管后偶尔不同步 → 播放中按钮不消失。
+        switch state {
+        case .buffering, .bufferFinished:
+            replayButton.isHidden = true
+        case .paused, .playedToTheEnd, .error:
+            replayButton.isHidden = false
+            replayButton.isSelected = (state == .playedToTheEnd)
+        default:
+            break
+        }
+
         guard state == .bufferFinished, autoFullscreenOnPlay, !didAutoFullscreen else { return }
         didAutoFullscreen = true
         onRequestFullscreen?()
@@ -283,10 +307,6 @@ struct LNKSPlayerHost: UIViewRepresentable {
         }
         playerView.autoFullscreenOnPlay = autoFullscreenOnPlay
         playerView.onRequestFullscreen = onRequestFullscreen
-        // KSSlider 把 thumb 区域放大了 ±20pt，默认白色 thumb 在小卡片里
-        // 就是一颗顶着左边缘的大圆点；隐藏 thumb，进度由轨道填充色表达
-        playerView.toolBar.timeSlider.setThumbImage(UIImage(), for: .normal)
-        playerView.toolBar.timeSlider.setThumbImage(UIImage(), for: .highlighted)
         box.view = playerView
         return playerView
     }
@@ -310,6 +330,9 @@ struct LNKSPlayerHost: UIViewRepresentable {
 /// 退出时把 layer 交还内嵌视图，delegate 与画面一起回位。
 struct LNKSFullscreenHost: UIViewRepresentable {
     let box: LNKSPlayerBox
+    /// 兜底用：万一内嵌 layer 已失效（视图重建），用它重新建一个，避免黑屏 + 按钮全死
+    let url: URL?
+    let options: KSOptions?
 
     final class Coordinator {
         let box: LNKSPlayerBox
@@ -325,6 +348,9 @@ struct LNKSFullscreenHost: UIViewRepresentable {
         if let layer = box.view?.playerLayer {
             // 接管：KSPlayerLayer 会把画面视图搬进新宿主、delegate 指向新视图
             playerView.playerLayer = layer
+        } else if let url, let options {
+            // 内嵌 layer 不可用时的兜底：直接在这里新建（宁可单独播，也不要黑屏死按钮）
+            playerView.set(url: url, options: options)
         }
         // 全屏期间 delegate 是新视图，把回调也接上：
         // 否则中途流中断（finish error）会被吞掉，界面表现为一直卡住不报错
@@ -352,10 +378,13 @@ struct LNKSFullscreenHost: UIViewRepresentable {
     }
 }
 
-/// SwiftUI 全屏播放页：黑色背景 + 播放器接管 + 右上角旋转/关闭按钮。
-/// 旋转按钮直接切换系统方向（强制横屏 ↔ 竖屏），是肉眼可见的真旋转。
+/// SwiftUI 全屏播放页：黑色背景 + 播放器接管 + 旋转/关闭按钮。
+/// 旋转按钮按主流播放器习惯放在**画面垂直居中、贴右边**（中央播放键的右侧），
+/// 关闭按钮留右上角。
 private struct LNKSPlayerFullscreen: View {
     let box: LNKSPlayerBox
+    let url: URL?
+    let options: KSOptions?
     let title: String
 
     @Environment(\.dismiss) private var dismiss
@@ -364,38 +393,48 @@ private struct LNKSPlayerFullscreen: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            LNKSFullscreenHost(box: box)
+            LNKSFullscreenHost(box: box, url: url, options: options)
                 .ignoresSafeArea()
         }
+        // 旋转按钮：垂直居中、贴右边（与中央播放按钮同一行）
+        .overlay(alignment: .trailing) {
+            Button {
+                forcedLandscape.toggle()
+                ReaderScreenOrientation.apply(forcedLandscape ? "2" : "1")
+            } label: {
+                Image(systemName: rotorSymbol)
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Color.black.opacity(0.45), in: Circle())
+            }
+            .padding(.trailing, 12)
+            .accessibilityLabel(forcedLandscape ? "切回竖屏" : "横屏旋转")
+        }
+        // 标题：右上角关闭键之外，左上角放文件名（KSPlayer 自带返回键已隐藏）
+        .overlay(alignment: .topLeading) {
+            Text(title)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.white.opacity(0.9))
+                .lineLimit(1)
+                .padding(.leading, 16)
+                .padding(.top, 16)
+                .allowsHitTesting(false)
+        }
+        // 关闭按钮：右上角
         .overlay(alignment: .topTrailing) {
-            HStack(spacing: 12) {
-                Button {
-                    forcedLandscape.toggle()
-                    ReaderScreenOrientation.apply(forcedLandscape ? "2" : "1")
-                } label: {
-                    Image(systemName: forcedLandscape
-                          ? "arrow.down.right.and.arrow.up.left"
-                          : "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
-                        .background(Color.black.opacity(0.45), in: Circle())
-                }
-                .accessibilityLabel(forcedLandscape ? "切回竖屏" : "横屏旋转")
-
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
-                        .background(Color.black.opacity(0.45), in: Circle())
-                }
-                .accessibilityLabel("退出全屏")
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Color.black.opacity(0.45), in: Circle())
             }
             .padding(.top, 10)
             .padding(.trailing, 16)
+            .accessibilityLabel("退出全屏")
         }
         .onAppear {
             // 全屏播放页里允许自由旋转（跟手转），点按钮则强制横/竖
@@ -405,5 +444,13 @@ private struct LNKSPlayerFullscreen: View {
             ReaderScreenOrientation.restoreApplicationDefault()
         }
         .statusBar(hidden: true)
+    }
+
+    /// 旋转图标：iOS 16+ 用「屏幕旋转」专属符号，旧系统退回环形箭头（都保证能渲染）
+    private var rotorSymbol: String {
+        if #available(iOS 16.0, *) {
+            return "rectangle.portrait.rotate"
+        }
+        return "arrow.clockwise"
     }
 }
