@@ -146,6 +146,7 @@
 		EB1000000000000000000002 /* ZIPFoundation-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = EB2000000000000000000002; };
 		EB1000000000000000000003 /* EPUBIllustrationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB2000000000000000000003; };
         F10000000000000000000004 /* ReadiumShared in Frameworks */ = {isa = PBXBuildFile; productRef = F20000000000000000000004; };
+		F10000000000000000000009 /* KSPlayer in Frameworks */ = {isa = PBXBuildFile; productRef = F20000000000000000000008 /* KSPlayer */; };
         F10000000000000000000005 /* ReadiumStreamer in Frameworks */ = {isa = PBXBuildFile; productRef = F20000000000000000000005; };
         F10000000000000000000006 /* ReadiumNavigator in Frameworks */ = {isa = PBXBuildFile; productRef = F20000000000000000000006; };
         ED1000000000000000000001 /* EPUBReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED2000000000000000000001; };
@@ -315,7 +316,8 @@
 				F10000000000000000000007 /* AMSMB2 in Frameworks */,
                 F10000000000000000000006 /* ReadiumNavigator in Frameworks */,
                 F10000000000000000000005 /* ReadiumStreamer in Frameworks */,
-                F10000000000000000000004 /* ReadiumShared in Frameworks */,
+				F10000000000000000000004 /* ReadiumShared in Frameworks */,
+				F10000000000000000000009 /* KSPlayer in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -745,13 +747,14 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (en, Base);
 			mainGroup = D40000000000000000000001;
-			packageReferences = (
-				F30000000000000000000001 /* XCRemoteSwiftPackageReference "SwiftSoup" */,
-				F30000000000000000000002 /* XCRemoteSwiftPackageReference "Kanna" */,
-				F30000000000000000000003 /* ZIPFoundation */,
-				F30000000000000000000005 /* AMSMB2 (vendored, static) */,
-                F30000000000000000000004 /* Readium */,
-			);
+				packageReferences = (
+					F30000000000000000000001 /* XCRemoteSwiftPackageReference "SwiftSoup" */,
+					F30000000000000000000002 /* XCRemoteSwiftPackageReference "Kanna" */,
+					F30000000000000000000003 /* ZIPFoundation */,
+					F30000000000000000000005 /* AMSMB2 (vendored, static) */,
+                    F30000000000000000000004 /* Readium */,
+                    F30000000000000000000006 /* KSPlayer */,
+				);
 			productRefGroup = D40000000000000000000002 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -1062,6 +1065,11 @@
             repositoryURL = "https://github.com/readium/swift-toolkit.git";
             requirement = { kind = exactVersion; version = 3.8.0; };
         };
+		F30000000000000000000006 /* KSPlayer */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kingslay/KSPlayer.git";
+			requirement = { kind = exactVersion; version = 2.3.4; };
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1085,11 +1093,16 @@
 			package = F30000000000000000000005 /* AMSMB2 (vendored, static) */;
 			productName = AMSMB2;
 		};
-        F20000000000000000000004 /* ReadiumShared */ = {
+		F20000000000000000000004 /* ReadiumShared */ = {
             isa = XCSwiftPackageProductDependency;
             package = F30000000000000000000004 /* Readium */;
             productName = ReadiumShared;
         };
+		F20000000000000000000008 /* KSPlayer */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F30000000000000000000006 /* KSPlayer */;
+			productName = KSPlayer;
+		};
         F20000000000000000000005 /* ReadiumStreamer */ = {
             isa = XCSwiftPackageProductDependency;
             package = F30000000000000000000004 /* Readium */;
