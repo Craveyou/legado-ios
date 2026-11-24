@@ -80,6 +80,16 @@ struct ReaderMenuDismissShape: Shape {
             scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
             scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
         } else {
+            // iOS 15 没有 requestGeometryUpdate：attemptRotationToDeviceOrientation
+            // 只会跟随物理方向，无法「按钮强制横屏」。用公认的 KVC 兜底先掰方向再触发旋转。
+            switch mask {
+            case .portrait:
+                UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
+            case .landscape:
+                UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
+            default:
+                break
+            }
             UIViewController.attemptRotationToDeviceOrientation()
         }
     }

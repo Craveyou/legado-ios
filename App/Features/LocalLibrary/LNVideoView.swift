@@ -326,6 +326,13 @@ struct LNKSFullscreenHost: UIViewRepresentable {
             // 接管：KSPlayerLayer 会把画面视图搬进新宿主、delegate 指向新视图
             playerView.playerLayer = layer
         }
+        // 全屏期间 delegate 是新视图，把回调也接上：
+        // 否则中途流中断（finish error）会被吞掉，界面表现为一直卡住不报错
+        playerView.delegate = box
+        playerView.playTimeDidChange = { _, total in
+            guard total > 0, total.isFinite else { return }
+            box.onDuration?(total)
+        }
         return playerView
     }
 
@@ -334,11 +341,13 @@ struct LNKSFullscreenHost: UIViewRepresentable {
     static func dismantleUIView(_ playerView: LNPlayerView, coordinator: Coordinator) {
         Task { @MainActor in
             guard let layer = playerView.playerLayer else { return }
-            // 先还给内嵌视图（delegate/画面回位），再释放全屏引用
-            if let embedded = coordinator.box.view {
-                embedded.playerLayer = layer
-            }
+            // 顺序很关键！VideoPlayerView.playerLayer 的 didSet 会把【旧值】的画面视图
+            // 从父视图 removeFromSuperview：
+            // 1) 先把全屏视图置空 → 画面从全屏视图摘掉；
+            // 2) 再把 layer 还给内嵌视图 → 画面重新嵌进内嵌视图、delegate 回位。
+            // 反过来做（先还再置空）会在第 2 步把刚还回去的画面又摘掉 → 退出全屏后黑屏。
             playerView.playerLayer = nil
+            coordinator.box.view?.playerLayer = layer
         }
     }
 }

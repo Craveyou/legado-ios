@@ -406,9 +406,13 @@ private struct LNPreviewPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: item.path) {
             guard image == nil else { return }
-            if let url = try? await source.localURL(for: item.path),
-               let data = try? Data(contentsOf: url, options: .mappedIfSafe) {
-                image = UIImage(data: data)
+            guard let url = try? await source.localURL(for: item.path) else { return }
+            // 复用带「后台降采样 + NSCache」的加载器：
+            // 直接 Data(contentsOf:) + UIImage(data:) 会在主线程全量解码，
+            // 翻几百张漫画时每次卡几十毫秒、内存还可能飙到几百 MB；
+            // 2400 像素足够大图清晰看，同时在缓存里与正文图共用内存上限。
+            if let loaded = await LNImageLoader.shared.load(url: url, maxPixel: 2400) {
+                image = loaded.image
             }
         }
     }

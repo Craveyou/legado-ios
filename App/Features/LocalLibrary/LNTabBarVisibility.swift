@@ -43,22 +43,40 @@ enum LNTabBarController {
     @MainActor private static var hiddenStates: [ObjectIdentifier: [ObjectIdentifier: CGFloat]] = [:]
     /// 旋转监听只注册一次
     @MainActor private static var orientationObserver: NSObjectProtocol?
+    /// 最近一次期望的显隐状态（旋转/重试都以它为准，避免“想隐藏却恢复失败”的漂移）
+    @MainActor private static var desiredHidden = false
 
     static func setHidden(_ hidden: Bool) {
         Task { @MainActor in
             ensureOrientationObserver()
-            guard let controller = find() else { return }
+            desiredHidden = hidden
+            applyWithRetry(hidden, attempts: 3)
+        }
+    }
+
+    /// 视图切换瞬间（全屏控制器 dismiss、导航过渡中）可能找不到 tabBarController，
+    /// 找不到就短延迟重试——否则这次恢复丢失，hiddenStates 留脏，之后一旋转就会把
+    /// 列表页的 tab 栏也藏起来（表现为 tab 栏错位、点不动）。
+    @MainActor
+    private static func applyWithRetry(_ hidden: Bool, attempts: Int) {
+        if let controller = find() {
             apply(hidden, to: controller)
+        } else if attempts > 0 {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                // 期间又变了一次就以最新意图为准
+                applyWithRetry(desiredHidden, attempts: attempts - 1)
+            }
         }
     }
 
     /// 旋转后重算：tab 栏高度会变（竖屏 49 / 横屏 32），
     /// transform 与安全区必须按新高度重贴，否则回到竖屏后位置错乱、点击不响应。
+    /// 注意：按 desiredHidden 重算而不是“当前是否被隐藏”——避免隐藏态残留。
     @MainActor
     static func refreshForCurrentOrientation() {
-        guard let controller = find(),
-              hiddenStates[ObjectIdentifier(controller)] != nil else { return }
-        apply(true, to: controller)
+        guard let controller = find() else { return }
+        apply(desiredHidden, to: controller)
     }
 
     @MainActor
@@ -74,9 +92,11 @@ enum LNTabBarController {
     @MainActor
     private static func apply(_ hidden: Bool, to controller: UITabBarController) {
         let id = ObjectIdentifier(controller)
-        // bounds.height：不受 transform 影响，隐藏后再调也拿得到真实高度
-        let height = controller.tabBar.bounds.height
-        guard height > 0 else { return }
+        // bounds.height：不受 transform 影响，隐藏后再调也拿得到真实高度。
+        // 极端时（布局尚未完成）取到 0，用标准 49pt 兜底——否则这次显隐会被整个跳过，
+        // 状态与画面不一致，后续更容易出现「tab 栏错位、点不动」。
+        let measured = controller.tabBar.bounds.height
+        let height = measured > 0 ? measured : 49
 
         if hidden {
             // 只在第一次隐藏时保存原始安全区，避免重复调用覆盖原值
