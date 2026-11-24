@@ -667,6 +667,17 @@ private enum FeiniuWebDAV {
         return target
     }
 
+    /// 视频/音频流式播放：直接返回远端 GET URL + 认证头，交给 AVURLAsset 按 HTTP Range 按需拉取，
+    /// 不再整文件下载（照搬 LocalNovel 2.17.3 的方案——几百 MB 的视频先全量下载完才能播，外网巨慢）。
+    /// 复用 makeRequest：端点探测、Basic 认证头、URL 构造与 list/download 完全一致。
+    static func streamingVideo(_ connection: FeiniuConnection, path: String) -> (URL, [String: String])? {
+        guard let request = try? makeRequest(connection, method: "GET", path: path),
+              let url = request.url else { return nil }
+        var headers: [String: String] = [:]
+        for (key, value) in request.allHTTPHeaderFields ?? [:] { headers[key] = value }
+        return (url, headers)
+    }
+
     /// WebDAV DELETE：删文件；删目录时带 Depth: infinity，服务端递归删除
     static func remove(_ connection: FeiniuConnection, path: String, isDirectory: Bool) async throws {
         var urlRequest = try makeRequest(connection, method: "DELETE", path: path)
@@ -910,6 +921,14 @@ enum FeiniuNASService {
             }
         }
         try await FeiniuWebDAV.remove(connection, path: path, isDirectory: isDirectory)
+    }
+
+    /// 视频/音频流式播放入口：只要 WebDAV 配置存在就返回远端 URL + 认证头
+    ///（WebDAV 服务在 NAS 上局域网/外网都可达，SMB 则无法 HTTP 流式）。
+    /// 返回 nil 表示该链路不支持流式，调用方回退整文件下载。
+    static func streamingVideo(_ connection: FeiniuConnection, path: String) -> (URL, [String: String])? {
+        guard !connection.webdavHost.isEmpty else { return nil }
+        return FeiniuWebDAV.streamingVideo(connection, path: path)
     }
 
     static func download(_ connection: FeiniuConnection, entry: NASEntry) async throws -> URL {

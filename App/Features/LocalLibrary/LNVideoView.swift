@@ -121,12 +121,30 @@ struct LNVideoView: View {
 
     private func load() async {
         guard player == nil, !failed else { return }
+        // 优先流式播放：NAS WebDAV 直接给远端 URL + 认证头，AVPlayer 按 Range 按需拉取，
+        // 秒开（照搬 LocalNovel 2.17.3 的方案）。返回 nil / 失败才回退整文件下载。
+        if let (remoteURL, headers) = try? await source.streamingVideo(for: item.path) {
+            let asset = headers.isEmpty
+                ? AVURLAsset(url: remoteURL)
+                : AVURLAsset(url: remoteURL, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+            // 按需加载，不预缓冲整个文件
+            let item = AVPlayerItem(asset: asset)
+            let p = AVPlayer(playerItem: item)
+            p.actionAtItemEnd = .pause
+            // 注意：这里绝不能 p.rate = speed —— 未播放的 player 直接设 rate 会立刻开播
+            player = p
+            if let cm = try? await item.asset.load(.duration) {
+                let seconds = CMTimeGetSeconds(cm)
+                if seconds.isFinite, seconds > 0 { duration = seconds }
+            }
+            return
+        }
+        // 回退：本地文件 / SMB 等不支持流式的链路，下载（本地即磁盘路径）后再播
         guard let url = try? await source.localURL(for: item.path) else {
             failed = true
             return
         }
         let p = AVPlayer(url: url)
-        // 注意：这里绝不能 p.rate = speed —— 未播放的 player 直接设 rate 会立刻开播
         player = p
         let asset = AVURLAsset(url: url)
         if let cm = try? await asset.load(.duration) {

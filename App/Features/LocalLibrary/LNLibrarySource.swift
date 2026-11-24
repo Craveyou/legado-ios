@@ -14,6 +14,10 @@ protocol LNLibrarySource: Sendable {
     func exists(at path: String) -> Bool
     /// 删除一个条目（文件或目录，目录递归删除）。path 语义与 list/localURL 一致。
     func remove(at path: String) async throws
+    /// 视频/音频流式播放：返回可直接交给 AVURLAsset 的远端 URL + HTTP 认证头（AVPlayer 按 Range 按需拉取，
+    /// 不用先把几百 MB 的文件下载完才开始播）。本地源返回 file URL + 空 headers；
+    /// 链路不支持流式（如纯 SMB）返回 nil，调用方回退 localURL 整文件下载。
+    func streamingVideo(for path: String) async throws -> (URL, [String: String])?
 }
 
 // MARK: - 本地文件源
@@ -52,6 +56,11 @@ struct LNLocalSource: LNLibrarySource {
 
     func exists(at path: String) -> Bool {
         FileManager.default.fileExists(atPath: url(for: path).path)
+    }
+
+    func streamingVideo(for path: String) async throws -> (URL, [String: String])? {
+        // 本地文件没有认证头，AVPlayer 直接读磁盘
+        (try await localURL(for: path), [:])
     }
 
     func remove(at path: String) async throws {
@@ -110,6 +119,13 @@ struct LNNASSource: LNLibrarySource {
     func exists(at path: String) -> Bool {
         // NAS 远端存在性需异步列目录，这里保守返回 true，由 list/localURL 报错
         true
+    }
+
+    func streamingVideo(for path: String) async throws -> (URL, [String: String])? {
+        // WebDAV 链路直接给远端 URL 流式播放（秒开）；SMB-only / WebDAV 未配置返回 nil
+        // 回退整文件下载。之前 NAS 视频每次播放都先把整个文件下载到临时目录
+        //（且每次新建 UUID 目录不缓存），几百 MB 的视频在外网要等好几分钟才能开播。
+        FeiniuNASService.streamingVideo(connection, path: fullPath(path))
     }
 
     func remove(at path: String) async throws {
