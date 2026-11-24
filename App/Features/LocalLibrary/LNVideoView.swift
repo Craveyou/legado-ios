@@ -1,37 +1,31 @@
 import SwiftUI
 @preconcurrency import KSPlayer
 
-/// 章末视频 / 短剧单集播放器（b53 起换 KSPlayer 全格式内核）。
+/// 章末视频 / 短剧单集播放器（b54：修正 KSPlayer 集成层级）。
 ///
-/// 为什么换内核：AVPlayer 解不了 mkv / rmvb / wmv 等容器，
-/// NAS 视频显示「禁止播放」的根因就是它。KSPlayer 2.3.4（纯源码 SPM，iOS 13+）
-/// 用 FFmpeg 解码，自带：
-/// - 全格式播放（mkv/rmvb/wmv/avi/flv…）
-/// - 完整控制条：播放/暂停、拖动、倍速菜单、字幕选择、音轨/清晰度切换
-/// - **长按 2x 倍速**（松手恢复，VideoPlayerView 内置手势）
-/// - **横屏全屏**（控制条右上角按钮，真旋转不是画面 hack）
-/// - 内嵌字幕自动加载（mkv 内挂字幕直接可选）
+/// b53 的教训：KSVideoPlayer.Coordinator.makeView 返回的是
+/// KSMEPlayer 的裸 Metal 渲染视图（videoOutput），控制条根本不在这层——
+/// 所以满屏黑、无任何控件。控制条在上层的 IOSVideoPlayerView。
 ///
-/// 实现要点：
-/// - 用底层 KSVideoPlayer（UIViewRepresentable，裸 UIKit 播放器视图），
-///   不用 KSVideoPlayerView——后者带 .toolbar(.hidden)，会连累阅读页导航栏。
-/// - 内嵌与全屏**共用同一个 Coordinator**（= 同一个 KSPlayerLayer =
-///   同一个播放实例），绝不在全屏时新建播放器，避免双音轨。
-/// - 流式：NAS WebDAV 远端 URL + appendHeader 认证头（FFmpeg http 协议原生支持），
-///   失败自动回退整文件下载；本地文件 / SMB 直接 file URL。
-/// - KSOptions.isAutoPlay = false：和旧版一致「点击播放才开始」，不自动响。
-/// - firstPlayerType 直接用 KSMEPlayer（FFmpeg）：跳过 AVPlayer 试错，
-///   mkv 第一次就能播；AVPlayer 解不了的格式会多一轮失败重试。
+/// b54 直接宿主 IOSVideoPlayerView（UIKit，iOS 13+，SwiftUI 的
+/// KSVideoPlayerView 要 iOS 16 用不了）：
+/// - 自带完整控制条：播放/暂停、拖动、倍速菜单、字幕选择、音轨切换
+/// - 自带长按 2x 倍速（松手恢复）
+/// - 自带横屏全屏：点控制条右上角按钮，视图自动 reparent 进
+///   PlayerFullScreenViewController（真旋转、动画），退出自动还原位置；
+///   也可以程序触发 landscapeButton.sendActions 主动全屏
+/// - playTimeDidChange / PlayerControllerDelegate 回传时长与播放错误，
+///   保留「流式失败 → 自动回退整文件下载」的降级链路
+/// - KSOptions.isAutoPlay = false：点击播放才开始，不自动响
 struct LNVideoView: View {
     let item: LNMediaItem
     let source: any LNLibrarySource
 
-    @StateObject private var coordinator = KSVideoPlayer.Coordinator()
+    @State private var box = LNKSPlayerBox()
     @State private var url: URL?
     @State private var options: KSOptions?
     @State private var duration: Double?
     @State private var failed = false
-    @State private var fullscreen = false
 
     /// 流式播放失败的具体原因（展示出来便于诊断）
     @State private var streamError: String?
@@ -59,14 +53,16 @@ struct LNVideoView: View {
                     .lineLimit(2)
             }
             if let url, let options {
-                playerCard(url: url, options: options)
+                LNKSPlayerHost(box: box, url: url, options: options)
+                    .frame(height: 240)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
             } else if !failed {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color.black.opacity(0.06))
                     ProgressView()
                 }
-                .frame(height: 200)
+                .frame(height: 240)
             }
             HStack(spacing: 8) {
                 Text(item.fileName)
@@ -79,7 +75,8 @@ struct LNVideoView: View {
                         .foregroundStyle(.secondary)
                 }
                 Button {
-                    fullscreen = true
+                    // 触发 KSPlayer 原生横屏全屏（reparent + 真旋转，退出自动还原）
+                    box.view?.landscapeButton.sendActions(for: .touchUpInside)
                 } label: {
                     Image(systemName: "rectangle.expand.vertical")
                         .font(.caption)
@@ -89,50 +86,30 @@ struct LNVideoView: View {
             }
         }
         .task(id: item.path) { await load() }
-        .fullScreenCover(isPresented: $fullscreen) {
-            if let url, let options {
-                LNKSPlayerFullscreen(coordinator: coordinator, url: url, options: options)
+        .onAppear {
+            box.onDuration = { total in
+                if duration != total { duration = total }
             }
+            box.onFinishError = { handlePlaybackError($0) }
         }
-    }
-
-    /// 内嵌播放卡片：KSPlayer 裸 UIKit 视图（自带全部控制条）。
-    @ViewBuilder
-    private func playerCard(url: URL, options: KSOptions) -> some View {
-        ZStack {
-            Color.black.opacity(0.001)
-            KSVideoPlayer(coordinator: coordinator, url: url, options: options)
-                .onPlay { _, total in
-                    // 时长由播放器回报，流式/本地统一处理
-                    if total > 0, total.isFinite, duration != total {
-                        duration = total
-                    }
-                }
-                .onFinish { _, error in
-                    handlePlaybackError(error)
-                }
-                .frame(height: 240)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-        }
-        .frame(height: 240)
     }
 
     // MARK: - 加载
 
     private func load() async {
         guard url == nil, !failed else { return }
-        // KSPlayer 全局偏好：不自动播放 + 直接用 FFmpeg 内核（可重复设置，幂等）
+        // KSPlayer 全局偏好：不自动播放 + 直接用 FFmpeg 内核（幂等）
         KSOptions.isAutoPlay = false
         KSOptions.firstPlayerType = KSMEPlayer.self
 
         // 优先流式播放：NAS WebDAV 远端 URL + 认证头，按需拉流秒开。
         // FFmpeg 内核原生吃 headers，mkv 也能流式播。
         if allowStreaming, let (remoteURL, headers) = try? await source.streamingVideo(for: item.path) {
-            let options = KSOptions()
+            let newOptions = KSOptions()
             for (key, value) in headers {
-                options.appendHeader([key: value])
+                newOptions.appendHeader([key: value])
             }
-            setPlayer(url: remoteURL, options: options)
+            setPlayer(url: remoteURL, options: newOptions)
             return
         }
         // 回退：本地文件 / SMB / 流式失败后的整文件下载
@@ -174,38 +151,58 @@ struct LNVideoView: View {
     }
 }
 
-/// 全屏播放器：复用内嵌同一个 Coordinator（同一个播放实例），避免双音轨。
-/// KSPlayer 控制条自带：倍速菜单、字幕选择、横屏全屏（真旋转）、拖动进度。
-private struct LNKSPlayerFullscreen: View {
-    let coordinator: KSVideoPlayer.Coordinator
+/// 桥接 IOSVideoPlayerView 回调的小盒子（weak delegate 的持有方）。
+final class LNKSPlayerBox: NSObject, PlayerControllerDelegate {
+    /// 当前宿主的播放器视图（用于程序触发横屏全屏）
+    weak var view: IOSVideoPlayerView?
+    var onDuration: ((Double) -> Void)?
+    var onFinishError: ((Error?) -> Void)?
+
+    func playerController(state _: KSPlayerState) {}
+    func playerController(currentTime _: TimeInterval, totalTime: TimeInterval) {
+        guard totalTime > 0, totalTime.isFinite else { return }
+        onDuration?(totalTime)
+    }
+    func playerController(finish error: Error?) {
+        onFinishError?(error)
+    }
+    func playerController(maskShow _: Bool) {}
+    func playerController(action _: PlayerButtonType) {}
+    func playerController(bufferedCount _: Int, consumeTime _: TimeInterval) {}
+    func playerController(seek _: TimeInterval) {}
+}
+
+/// UIKit 播放器宿主：IOSVideoPlayerView 自带控制条与全屏逻辑。
+struct LNKSPlayerHost: UIViewRepresentable {
+    let box: LNKSPlayerBox
     let url: URL
     let options: KSOptions
 
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        ReadingNavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                KSVideoPlayer(coordinator: coordinator, url: url, options: options)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .ignoresSafeArea(edges: .bottom)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "chevron.down")
-                            .foregroundStyle(.white)
-                    }
-                    .accessibilityLabel("退出全屏")
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("完成") { dismiss() }
-                        .foregroundStyle(.white)
-                }
-            }
+    func makeUIView(context _: Context) -> IOSVideoPlayerView {
+        let playerView = IOSVideoPlayerView()
+        // 顶栏返回键在非全屏时不做任何事，避免误触发阅读页导航返回
+        playerView.backBlock = {}
+        playerView.set(url: url, options: options)
+        playerView.delegate = box
+        playerView.playTimeDidChange = { _, total in
+            guard total > 0, total.isFinite else { return }
+            box.onDuration?(total)
         }
-        .preferredColorScheme(.dark)
+        box.view = playerView
+        return playerView
+    }
+
+    func updateUIView(_ playerView: IOSVideoPlayerView, context _: Context) {
+        // 流式失败回退下载、换章等场景：URL 变了就重设（KSPlayer 内部会重建 layer）
+        if playerView.playerLayer?.url != url {
+            playerView.set(url: url, options: options)
+        }
+    }
+
+    static func dismantleUIView(_ playerView: IOSVideoPlayerView, coordinator _: ()) {
+        // 阅读页滚走/退出时停播；全屏 reparent 不走 dismantle，不影响播放
+        Task { @MainActor in
+            playerView.pause()
+        }
     }
 }
