@@ -192,8 +192,6 @@ private struct LNKSPlayerFullscreen: View {
             }
             .ignoresSafeArea(edges: .bottom)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarBackground(Color.black.opacity(0.4), for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button { dismiss() } label: {
