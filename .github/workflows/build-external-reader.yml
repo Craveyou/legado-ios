@@ -1,0 +1,130 @@
+# 通用参数化构建：把任意 xcodeproj/xcworkspace 工程编译成未签名 ipa。
+# 由 Tools 端 build_external.py 通过 workflow_dispatch 触发，inputs 指定工程位置。
+# 产物：unsigned ipa artifact，供 Sideloadly / AltStore 侧载测试。
+
+name: External Reader IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner 标签'
+        required: false
+        default: 'xcode-27'
+      workdir:
+        description: '工程所在目录（相对仓库根，可空）'
+        required: false
+        default: '.'
+      project:
+        description: '.xcodeproj 路径（相对仓库根，workspace 为空时必填）'
+        required: false
+        default: ''
+      workspace:
+        description: '.xcworkspace 路径（相对仓库根，优先于 project）'
+        required: false
+        default: ''
+      scheme:
+        description: 'scheme 名'
+        required: true
+        default: ''
+      ipa_name:
+        description: '产物 ipa 文件名'
+        required: true
+        default: 'app-unsigned.ipa'
+      use_pods:
+        description: '是否先 pod install'
+        required: false
+        default: 'false'
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner || 'xcode-27' }}
+    timeout-minutes: 90
+
+    steps:
+      - name: 检出工程
+        uses: actions/checkout@v4
+
+      - name: 选择 Xcode 27
+        run: |
+          set -euo pipefail
+          CANDIDATE="$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$CANDIDATE" ]; then
+            CANDIDATE="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1 || true)"
+          fi
+          [ -n "$CANDIDATE" ] || { echo "::error::镜像里没有 Xcode"; exit 1; }
+          sudo xcode-select -s "$CANDIDATE/Contents/Developer"
+          xcodebuild -version
+
+      - name: 修补过低的部署目标（Xcode 27 对 <15.0 直接报错）
+        run: |
+          set -euo pipefail
+          find . -name "*.pbxproj" -type f | while read -r f; do
+            sed -i '' -E 's/IPHONEOS_DEPLOYMENT_TARGET = (8|9|10|11|12|13|14)(\.[0-9]+)?;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g' "$f"
+            grep -c "IPHONEOS_DEPLOYMENT_TARGET = 15.0" "$f" || true
+          done
+          # Podfile platform 行同步抬升
+          find . -name "Podfile" -type f | while read -r f; do
+            sed -i '' -E "s/platform :ios, '[0-9.]+'/platform :ios, '15.0'/" "$f" || true
+          done
+
+      - name: 安装 CocoaPods 依赖
+        if: ${{ inputs.use_pods == 'true' }}
+        run: |
+          set -euo pipefail
+          cd "${{ inputs.workdir || '.' }}"
+          pod install --repo-update
+
+      # 「列出 scheme」诊断步骤已移除：它每次固定耗 30 秒且只在编译失败时才有价值，
+      # 需要排查时用 Actions 页面手动跑一次即可，不为每次构建付这笔成本。
+
+      - name: 编译未签名 archive
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [ -n "${{ inputs.workspace }}" ]; then
+            ARGS+=(-workspace "${{ inputs.workspace }}")
+          else
+            ARGS+=(-project "${{ inputs.project }}")
+          fi
+          xcodebuild "${ARGS[@]}" \
+            -scheme "${{ inputs.scheme }}" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -sdk iphoneos \
+            -archivePath "$RUNNER_TEMP/app.xcarchive" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
+            clean archive
+
+      - name: 打包未签名 ipa
+        run: |
+          set -euo pipefail
+          APP="$(find "$RUNNER_TEMP/app.xcarchive/Products/Applications" -mindepth 1 -maxdepth 1 -name '*.app' | head -1)"
+          [ -n "$APP" ] || { echo "::error::archive 里没有 .app"; exit 1; }
+          BIN="$APP/$(basename "${APP%.app}")"
+          test -f "$BIN" || { echo "::error::.app 里没有主二进制"; exit 1; }
+          file "$BIN" | grep -q arm64 || { echo "::error::主二进制不是 arm64"; exit 1; }
+          rm -rf "$RUNNER_TEMP/ipa"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          ditto "$APP" "$RUNNER_TEMP/ipa/Payload/$(basename "$APP")"
+          IPA="$GITHUB_WORKSPACE/${{ inputs.ipa_name }}"
+          (cd "$RUNNER_TEMP/ipa" && zip -q -r "$IPA" Payload)
+          echo "IPA_PATH=$IPA" >> "$GITHUB_ENV"
+          echo "IPA_NAME=${{ inputs.ipa_name }}" >> "$GITHUB_ENV"
+          unzip -l "$IPA" | head -10
+          ls -lh "$IPA"
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.ipa_name }}-artifact
+          path: ${{ env.IPA_PATH }}
+          retention-days: 14
+          if-no-files-found: error
