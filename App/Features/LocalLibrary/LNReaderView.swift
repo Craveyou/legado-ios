@@ -29,8 +29,10 @@ struct LNReaderView: View {
 
     @State private var content: LNChapterContent?
     @State private var errorMessage: String?
-    /// 阅读页弹层：大图预览 / 排版设置（单 sheet 枚举，避免多 sheet 冲突）
-    @State private var activeSheet: LNReaderSheet?
+    /// 排版设置面板（sheet）
+    @State private var showsTypoSettings = false
+    /// 大图预览（全屏 cover——图片浏览是沉浸场景，卡片式 sheet 上下留白会挤压画面）
+    @State private var previewRequest: LNImagePreviewRequest?
     /// 图文混排结果只算一次：放在 body 里的话，每次状态变化都要重跑一遍正则解析
     @State private var flow: [LNInlineFlow.Block] = []
 
@@ -56,7 +58,7 @@ struct LNReaderView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
-                    activeSheet = .typoSettings
+                    showsTypoSettings = true
                 } label: {
                     Image(systemName: "textformat.size")
                 }
@@ -65,13 +67,11 @@ struct LNReaderView: View {
         }
         // 章变化（含原地换章）时重新加载；flow 清空交给 load() 开头处理
         .task(id: displayChapter.id) { await load() }
-        .sheet(item: $activeSheet) { sheet in
-            switch sheet {
-            case .typoSettings:
-                LNReaderTypoSettings(fontSize: $fontSize, lineSpacing: $lineSpacing)
-            case .preview(let request):
-                LNImagePreview(images: request.images, startIndex: request.startIndex, source: source)
-            }
+        .sheet(isPresented: $showsTypoSettings) {
+            LNReaderTypoSettings(fontSize: $fontSize, lineSpacing: $lineSpacing)
+        }
+        .fullScreenCover(item: $previewRequest) { request in
+            LNImagePreview(images: request.images, startIndex: request.startIndex, source: source)
         }
     }
 
@@ -212,7 +212,7 @@ struct LNReaderView: View {
     /// 打开大图预览：带上整章图片列表与当前页索引，支持左右滑动翻前后图
     private func openPreview(_ item: LNMediaItem, in images: [LNMediaItem]) {
         let index = images.firstIndex(where: { $0.path == item.path }) ?? 0
-        activeSheet = .preview(LNImagePreviewRequest(images: images, startIndex: index))
+        previewRequest = LNImagePreviewRequest(images: images, startIndex: index)
     }
 
     /// 当前章的下一章（按章节列表顺序）
@@ -327,19 +327,6 @@ private struct LNReaderTypoSettings: View {
 
 // MARK: - 图片大图预览（左右滑动切换）
 
-/// 阅读页弹层类型：排版设置 / 大图预览
-private enum LNReaderSheet: Identifiable {
-    case typoSettings
-    case preview(LNImagePreviewRequest)
-
-    var id: String {
-        switch self {
-        case .typoSettings: "typo"
-        case .preview(let request): "preview-\(request.id.uuidString)"
-        }
-    }
-}
-
 private struct LNImagePreviewRequest: Identifiable {
     let id = UUID()
     let images: [LNMediaItem]
@@ -362,53 +349,52 @@ private struct LNImagePreview: View {
     }
 
     var body: some View {
-        // 不用 NavigationStack 包裹：page 式 TabView 套在带导航栏/toolbar 的容器里，
-        // 分页手势和导航栈的边缘手势/布局会互相干扰，滑动偶尔停在两张图中间（b62 修复）。
-        // 顶部页码与关闭按钮自绘，结构最简，分页最稳。
+        // 分页不用 TabView(.page)：它底层是 UIPageViewController，页面宽度在布局
+        // 阶段被缓存，modal 呈现时容器宽度会经历「小 → 最终」的过渡，它会拿过渡中
+        // 的宽度当页宽 → 滑动吸附在两张图中间（b62 去掉导航栈后依旧复现）。
+        // 改用 UIScrollView + isPagingEnabled（系统相册同款），页宽始终跟随实时
+        // 容器宽度，并在减速结束时按整页修正落点，吸附 100% 落在整页。
         ZStack {
             Color.black.ignoresSafeArea()
 
-            TabView(selection: $index) {
-                ForEach(images.indices, id: \.self) { i in
-                    LNPreviewPage(item: images[i], source: source)
-                        .tag(i)
-                }
+            LNPagingView(count: images.count, startIndex: index, index: $index) { pageIndex, isActive in
+                LNPreviewPage(item: images[pageIndex], source: source, isActive: isActive)
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            VStack {
-                HStack(spacing: 12) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 38, height: 38)
-                            .background(Color.black.opacity(0.45), in: Circle())
-                    }
-                    .accessibilityLabel("关闭大图")
-
-                    Spacer()
-
-                    Text("\(index + 1) / \(images.count)")
-                        .font(.footnote.monospacedDigit())
+            .ignoresSafeArea()
+        }
+        // 顶部栏只占一行（overlay + alignment: .top），不要用 VStack + Spacer 铺满：
+        // 那会在画面上盖一层全屏透明层，滑动/点击要先被它吞掉一次。
+        .overlay(alignment: .top) {
+            HStack(spacing: 12) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.black.opacity(0.45), in: Capsule())
-
-                    Spacer()
-
-                    // 占位：让页码真正居中（与左侧关闭键等宽）
-                    Color.clear.frame(width: 38, height: 38)
+                        .frame(width: 38, height: 38)
+                        .background(Color.black.opacity(0.45), in: Circle())
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .accessibilityLabel("关闭大图")
 
                 Spacer()
+
+                Text("\(index + 1) / \(images.count)")
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.black.opacity(0.45), in: Capsule())
+                    .accessibilityLabel("第 \(index + 1) 张，共 \(images.count) 张")
+
+                Spacer()
+
+                // 占位：让页码真正居中（与左侧关闭键等宽）
+                Color.clear.frame(width: 38, height: 38)
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
         }
         .preferredColorScheme(.dark)
         .statusBar(hidden: true)
@@ -418,6 +404,10 @@ private struct LNImagePreview: View {
 private struct LNPreviewPage: View {
     let item: LNMediaItem
     let source: any LNLibrarySource
+    /// 是否落在「当前页 ±1」的预加载窗口内。
+    /// 整章几十上百张图若一次性全部解码，内存会直接打满、首帧也被拖慢，
+    /// 所以窗口外的页面只占位不加载，滑到邻近时再取。
+    let isActive: Bool
     @State private var image: UIImage?
 
     var body: some View {
@@ -426,13 +416,16 @@ private struct LNPreviewPage: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
+            } else if isActive {
+                ProgressView().tint(.white)
             } else {
-                ProgressView()
+                Color.clear
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: item.path) {
-            guard image == nil else { return }
+        // 已加载的页不再参与重算；isActive 变化时重新评估是否需要加载
+        .task(id: "\(item.path)#\(isActive)") {
+            guard isActive, image == nil else { return }
             guard let url = try? await source.localURL(for: item.path) else { return }
             // 复用带「后台降采样 + NSCache」的加载器：
             // 直接 Data(contentsOf:) + UIImage(data:) 会在主线程全量解码，
@@ -442,5 +435,217 @@ private struct LNPreviewPage: View {
                 image = loaded.image
             }
         }
+    }
+}
+
+// MARK: - 横向分页容器（UIScrollView，整页精确吸附）
+
+/// 图片横向分页容器。
+///
+/// 为什么不用 `TabView(.page)`：它底层是 `UIPageViewController`，页宽在布局阶段
+/// 被缓存。本预览是 modal 呈现，容器宽度会经历「过渡值 → 最终值」的变化，
+/// UIPageViewController 会拿过渡中的宽度当页宽，之后滑动就吸附在两张图中间
+/// （b62 去掉导航栈包裹后仍然复现，说明不是手势冲突而是页宽失配）。
+///
+/// 这里用 `UIScrollView.isPagingEnabled`（系统相册同款）：
+/// - 页宽约束到 `frameLayoutGuide.widthAnchor`，永远等于实时容器宽度；
+/// - `scrollViewWillEndDragging` 再按整页修正 `targetContentOffset`，
+///   即便有亚像素误差也一定落在整页上；
+/// - 宽度变化（首帧/旋转）时按当前页重贴，不会累积偏移。
+private struct LNPagingView<Page: View>: UIViewControllerRepresentable {
+    let count: Int
+    let startIndex: Int
+    @Binding var index: Int
+    /// (页序号, 是否在预加载窗口内)
+    let pageBuilder: (Int, Bool) -> Page
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIViewController(context: Context) -> LNPagingController<Page> {
+        let controller = LNPagingController(count: count, startIndex: startIndex, pageBuilder: pageBuilder)
+        context.coordinator.binding = $index
+        controller.onIndexChange = { newValue in
+            if context.coordinator.binding.wrappedValue != newValue {
+                context.coordinator.binding.wrappedValue = newValue
+            }
+        }
+        return controller
+    }
+
+    func updateUIViewController(_ controller: LNPagingController<Page>, context: Context) {
+        context.coordinator.binding = $index
+        controller.onIndexChange = { newValue in
+            if context.coordinator.binding.wrappedValue != newValue {
+                context.coordinator.binding.wrappedValue = newValue
+            }
+        }
+        // 外部（页码/按钮）改了页：同步滚动过去；用户正在滑动时会被内部忽略
+        controller.syncIndexFromOutside(index)
+    }
+
+    final class Coordinator {
+        var binding: Binding<Int> = .constant(0)
+    }
+}
+
+private final class LNPagingController<Page: View>: UIViewController, UIScrollViewDelegate {
+    private let scrollView = UIScrollView()
+    private let stackView = UIStackView()
+    private var pages: [UIHostingController<Page>] = []
+    private let pageCount: Int
+    private let pageBuilder: (Int, Bool) -> Page
+    private var currentIndex: Int
+    private var lastWidth: CGFloat = 0
+    private var isUserInteracting = false
+    /// 上次渲染窗口的中心页；中心没变就不重建各页 rootView
+    private var renderedCenter: Int = .min
+
+    var onIndexChange: ((Int) -> Void)?
+
+    init(count: Int, startIndex: Int, pageBuilder: @escaping (Int, Bool) -> Page) {
+        self.pageCount = max(count, 1)
+        self.pageBuilder = pageBuilder
+        self.currentIndex = min(max(startIndex, 0), max(count - 1, 0))
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+
+        scrollView.isPagingEnabled = true
+        scrollView.alwaysBounceHorizontal = pageCount > 1
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.decelerationRate = .fast
+        scrollView.delegate = self
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(scrollView)
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
+        stackView.axis = .horizontal
+        stackView.alignment = .fill
+        stackView.distribution = .fill
+        stackView.spacing = 0
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(stackView)
+        NSLayoutConstraint.activate([
+            stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            stackView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+        ])
+
+        buildPages()
+    }
+
+    private func buildPages() {
+        renderedCenter = currentIndex
+        for index in 0 ..< pageCount {
+            let host = UIHostingController(rootView: pageBuilder(index, isWithinWindow(index)))
+            host.view.backgroundColor = .clear
+            host.view.translatesAutoresizingMaskIntoConstraints = false
+            addChild(host)
+            stackView.addArrangedSubview(host.view)
+            // 页宽恒等于滚动容器可视宽度——分页吸附的前提
+            host.view.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor).isActive = true
+            host.didMove(toParent: self)
+            pages.append(host)
+        }
+    }
+
+    private func isWithinWindow(_ index: Int) -> Bool {
+        abs(index - currentIndex) <= 1
+    }
+
+    /// 窗口中心页变化时刷新各页的 active 标记（已加载的图在 @State 里保留，滑回来即显）
+    private func refreshWindowIfNeeded() {
+        guard renderedCenter != currentIndex else { return }
+        renderedCenter = currentIndex
+        for (index, host) in pages.enumerated() {
+            host.rootView = pageBuilder(index, isWithinWindow(index))
+        }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let width = scrollView.bounds.width
+        guard width > 0, abs(width - lastWidth) > 0.5 else { return }
+        lastWidth = width
+        // 首帧与旋转：contentSize 先按新页宽落定，再按当前页贴齐（无动画）
+        scrollView.layoutIfNeeded()
+        scrollView.setContentOffset(CGPoint(x: CGFloat(currentIndex) * width, y: 0), animated: false)
+    }
+
+    // MARK: - 对外同步
+
+    /// 外部改了页码：滚到对应页。用户正在拖动/减速时忽略，避免打断手势。
+    func syncIndexFromOutside(_ newIndex: Int) {
+        guard !isUserInteracting else { return }
+        let clamped = min(max(newIndex, 0), pageCount - 1)
+        guard clamped != currentIndex else { return }
+        currentIndex = clamped
+        refreshWindowIfNeeded()
+        let width = scrollView.bounds.width
+        guard width > 0 else { return }
+        let target = CGPoint(x: CGFloat(clamped) * width, y: 0)
+        guard abs(scrollView.contentOffset.x - target.x) > 0.5 else { return }
+        scrollView.setContentOffset(target, animated: true)
+    }
+
+    // MARK: - UIScrollViewDelegate
+
+    func scrollViewWillBeginDragging(_: UIScrollView) {
+        isUserInteracting = true
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        let width = scrollView.bounds.width
+        guard width > 0 else { return }
+        let page = min(max(Int((scrollView.contentOffset.x / width).rounded()), 0), pageCount - 1)
+        guard page != currentIndex else { return }
+        currentIndex = page
+        onIndexChange?(page)
+        refreshWindowIfNeeded()
+    }
+
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView,
+                                   withVelocity _: CGPoint,
+                                   targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        let width = scrollView.bounds.width
+        guard width > 0 else { return }
+        let page = (targetContentOffset.pointee.x / width).rounded()
+        let clamped = min(max(page, 0), CGFloat(pageCount - 1))
+        targetContentOffset.pointee.x = clamped * width
+    }
+
+    func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
+        guard !decelerate else { return }
+        isUserInteracting = false
+        snapToCurrentPage()
+    }
+
+    func scrollViewDidEndDecelerating(_: UIScrollView) {
+        isUserInteracting = false
+        snapToCurrentPage()
+    }
+
+    /// 兜底吸附：万一系统没完全对齐（页宽亚像素误差），这里补一次
+    private func snapToCurrentPage() {
+        let width = scrollView.bounds.width
+        guard width > 0 else { return }
+        let target = CGPoint(x: CGFloat(currentIndex) * width, y: 0)
+        guard abs(scrollView.contentOffset.x - target.x) > 0.5 else { return }
+        scrollView.setContentOffset(target, animated: true)
     }
 }
