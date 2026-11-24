@@ -50,7 +50,6 @@ struct LNVideoView: View {
                 Text("流式不可用已改下载播放（\(streamError)）")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
             }
             if let url, let options {
                 LNKSPlayerHost(box: box, url: url, options: options)
@@ -98,9 +97,13 @@ struct LNVideoView: View {
 
     private func load() async {
         guard url == nil, !failed else { return }
-        // KSPlayer 全局偏好：不自动播放 + 直接用 FFmpeg 内核（幂等）
+        // KSPlayer 全局偏好（幂等）：不自动播放 + 直接用 FFmpeg 内核。
+        // FFmpeg 失败自动换 AVPlayer 重试（mp4/mov 等被反代拦 FFmpeg 特征时，
+        // AVPlayer 同 URL 通常可达——LocalNovel 流式已验证；mkv 则 AVPlayer
+        // 也会失败，走错误回退下载）。
         KSOptions.isAutoPlay = false
         KSOptions.firstPlayerType = KSMEPlayer.self
+        KSOptions.secondPlayerType = KSAVPlayer.self
 
         // 优先流式播放：NAS WebDAV 远端 URL + 认证头，按需拉流秒开。
         // FFmpeg 内核原生吃 headers，mkv 也能流式播。
@@ -109,6 +112,9 @@ struct LNVideoView: View {
             for (key, value) in headers {
                 newOptions.appendHeader([key: value])
             }
+            // FFmpeg 默认 UA 是 "KSPlayer"，可能被反代/CDN 拦截；
+            // 伪装成 AVPlayer 的 UA（LocalNovel 流式同款，已验证 NAS 可达）
+            newOptions.userAgent = "AppleCoreMedia/1.0"
             setPlayer(url: remoteURL, options: newOptions)
             return
         }
@@ -188,6 +194,10 @@ struct LNKSPlayerHost: UIViewRepresentable {
             guard total > 0, total.isFinite else { return }
             box.onDuration?(total)
         }
+        // KSSlider 把 thumb 区域放大了 ±20pt，默认白色 thumb 在小卡片里
+        // 就是一颗顶着左边缘的大圆点；隐藏 thumb，进度由轨道填充色表达
+        playerView.toolBar.timeSlider.setThumbImage(UIImage(), for: .normal)
+        playerView.toolBar.timeSlider.setThumbImage(UIImage(), for: .highlighted)
         box.view = playerView
         return playerView
     }
