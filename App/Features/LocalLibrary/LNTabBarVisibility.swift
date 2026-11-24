@@ -92,9 +92,19 @@ enum LNTabBarController {
     @MainActor
     private static func apply(_ hidden: Bool, to controller: UITabBarController) {
         let id = ObjectIdentifier(controller)
-        // bounds.height：不受 transform 影响，隐藏后再调也拿得到真实高度。
-        // 极端时（布局尚未完成）取到 0，用标准 49pt 兜底——否则这次显隐会被整个跳过，
-        // 状态与画面不一致，后续更容易出现「tab 栏错位、点不动」。
+
+        // iOS 18+：直接用官方 API。iOS 26 的「浮动胶囊 tab 栏」(Liquid Glass) 也只有它能正确
+        // 隐藏并同步安全区。⚠️ 千万不要再对 tabBar 做 transform 平移：
+        // 浮动胶囊被平移后视觉上移，但命中区域与系统布局不同步 —— 这就是
+        // 「tab 栏上移 + 点击穿透到下方章节」的根因（b60 修复）。
+        if #available(iOS 18.0, *) {
+            controller.setTabBarHidden(hidden, animated: false)
+            hiddenStates.removeValue(forKey: id)
+            return
+        }
+
+        // iOS 15–17：老式全宽 tab 栏，isHidden + 安全区补偿（幂等赋值），同样不做 transform。
+        // 高度用 bounds.height（不受 transform 影响），布局未完成取到 0 时用 49 兜底。
         let measured = controller.tabBar.bounds.height
         let height = measured > 0 ? measured : 49
 
@@ -110,7 +120,7 @@ enum LNTabBarController {
             let saved = hiddenStates[id] ?? [:]
             UIView.performWithoutAnimation {
                 controller.tabBar.isHidden = true
-                controller.tabBar.transform = CGAffineTransform(translationX: 0, y: height)
+                controller.tabBar.transform = .identity
                 for child in controller.viewControllers ?? [] {
                     // 幂等赋值（不是累加）：旋转/重复调用都不会漂移
                     child.additionalSafeAreaInsets.bottom =

@@ -106,25 +106,30 @@ struct LNBookListView: View {
                                        systemImage: category.symbol,
                                        description: Text(category.hint))
             } else {
-                List(books, id: \.path, selection: $selected) { book in
-                    NavigationLink {
-                        LNChapterListView(source: source, book: book)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(book.title).foregroundStyle(.primary)
-                            Text("\(book.chapters.count) 章")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            Task { await deleteBook(book) }
+                // 同章节列表：不用 List(selection:)，否则整行点击只会选中不进入（b60 修复）
+                List(books, id: \.path) { book in
+                    if editMode == .active {
+                        Button {
+                            toggleSelection(book)
                         } label: {
-                            Label("删除", systemImage: "trash")
+                            bookRow(book)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        NavigationLink {
+                            LNChapterListView(source: source, book: book)
+                        } label: {
+                            bookRow(book)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                Task { await deleteBook(book) }
+                            } label: {
+                                Label("删除", systemImage: "trash")
+                            }
                         }
                     }
                 }
-                .environment(\.editMode, $editMode)
             }
         }
         .navigationTitle(category.label)
@@ -180,6 +185,33 @@ struct LNBookListView: View {
         editMode = .inactive
     }
 
+    /// 书籍行内容：多选模式显示勾选圈；整行 contentShape 保证空白处可点
+    private func bookRow(_ book: LNBook) -> some View {
+        HStack(spacing: 10) {
+            if editMode == .active {
+                Image(systemName: selected.contains(book.path) ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selected.contains(book.path)
+                                     ? ReadingTheme.accent : Color.secondary)
+                    .accessibilityHidden(true)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(book.title).foregroundStyle(.primary)
+                Text("\(book.chapters.count) 章")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func toggleSelection(_ book: LNBook) {
+        if selected.contains(book.path) {
+            selected.remove(book.path)
+        } else {
+            selected.insert(book.path)
+        }
+    }
+
     private func deleteBook(_ book: LNBook) async {
         try? await source.remove(at: book.path)
         await load()
@@ -213,27 +245,35 @@ struct LNChapterListView: View {
     @State private var showReader = false
 
     var body: some View {
-        List(chapters, id: \.path, selection: $selected) { chapter in
-            Button {
-                nav.current = chapter
-                showReader = true
-            } label: {
-                HStack {
-                    Image(systemName: symbol(for: chapter.kind))
-                        .foregroundStyle(ReadingTheme.accent)
-                    Text(chapter.displayName).foregroundStyle(.primary)
-                }
-            }
-            .buttonStyle(.plain)
-            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                Button(role: .destructive) {
-                    Task { await deleteChapter(chapter) }
+        // 注意：这里**不能用** List(selection:)。带 selection 绑定的 List 会一直处于
+        // 选择模式，点击整行只是「选中高亮」，不会触发行内的 Button/NavigationLink——
+        // 表现为只有点在文字上才能进章节、点同行空白处只出现高亮（b60 修复）。
+        // 现在改成：普通模式 = 整行可点的按钮；多选模式 = 手动勾选（自绘 checkmark）。
+        List(chapters, id: \.path) { chapter in
+            if editMode == .active {
+                Button {
+                    toggleSelection(chapter)
                 } label: {
-                    Label("删除", systemImage: "trash")
+                    chapterRow(chapter)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    nav.current = chapter
+                    showReader = true
+                } label: {
+                    chapterRow(chapter)
+                }
+                .buttonStyle(.plain)
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        Task { await deleteChapter(chapter) }
+                    } label: {
+                        Label("删除", systemImage: "trash")
+                    }
                 }
             }
         }
-        .environment(\.editMode, $editMode)
         // 章末「下一章」：阅读页直接改 nav.current 原地换章（不退栈、无过渡），
         // 这里不再需要监听 token/dismiss——栈里始终只有一层阅读页，系统返回直接回目录。
         .readingNavigationDestination(isPresented: $showReader) {
@@ -292,6 +332,33 @@ struct LNChapterListView: View {
     private func deleteChapter(_ chapter: LNChapter) async {
         try? await source.remove(at: chapter.path)
         chapters.removeAll { $0.path == chapter.path }
+    }
+
+    /// 章节行内容：整行 .contentShape(Rectangle()) 保证空白处也可点；
+    /// 多选模式下左侧显示勾选圈。
+    private func chapterRow(_ chapter: LNChapter) -> some View {
+        HStack(spacing: 10) {
+            if editMode == .active {
+                Image(systemName: selected.contains(chapter.path) ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selected.contains(chapter.path)
+                                     ? ReadingTheme.accent : Color.secondary)
+                    .accessibilityHidden(true)
+            }
+            Image(systemName: symbol(for: chapter.kind))
+                .foregroundStyle(ReadingTheme.accent)
+            Text(chapter.displayName).foregroundStyle(.primary)
+            Spacer(minLength: 0)
+        }
+        // 关键：把点击区域扩到整行（含右侧空白）
+        .contentShape(Rectangle())
+    }
+
+    private func toggleSelection(_ chapter: LNChapter) {
+        if selected.contains(chapter.path) {
+            selected.remove(chapter.path)
+        } else {
+            selected.insert(chapter.path)
+        }
     }
 
     private func symbol(for kind: LNChapterKind) -> String {
