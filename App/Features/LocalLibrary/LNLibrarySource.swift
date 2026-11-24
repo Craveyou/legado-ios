@@ -125,7 +125,7 @@ struct LNNASSource: LNLibrarySource {
         // WebDAV 链路直接给远端 URL 流式播放（秒开）；SMB-only / WebDAV 未配置返回 nil
         // 回退整文件下载。之前 NAS 视频每次播放都先把整个文件下载到临时目录
         //（且每次新建 UUID 目录不缓存），几百 MB 的视频在外网要等好几分钟才能开播。
-        FeiniuNASService.streamingVideo(connection, path: fullPath(path))
+        await FeiniuNASService.streamingVideo(connection, path: fullPath(path))
     }
 
     func remove(at path: String) async throws {

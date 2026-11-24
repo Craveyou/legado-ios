@@ -552,6 +552,25 @@ private enum FeiniuSMB {
     }
 }
 
+/// 流式路径样式缓存（并发安全）：记录每个 NAS 连接上探测命中的候选路径索引，
+/// 避免每次开视频都先踩一次 404。
+private final class StreamStyleCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var styles: [UUID: Int] = [:]
+
+    func get(_ id: UUID) -> Int? {
+        lock.lock()
+        defer { lock.unlock() }
+        return styles[id]
+    }
+
+    func set(_ id: UUID, _ index: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        styles[id] = index
+    }
+}
+
 /// 飞牛 WebDAV 最小实现：PROPFIND 探测与列目录、GET 下载。
 private enum FeiniuWebDAV {
     /// 候选端点：用户配置的排第一，再补飞牛常见的 5005/5006/443。
@@ -667,17 +686,96 @@ private enum FeiniuWebDAV {
         return target
     }
 
-    /// 视频/音频流式播放：直接返回远端 GET URL + 认证头，交给 AVURLAsset 按 HTTP Range 按需拉取，
-    /// 不再整文件下载（照搬 LocalNovel 2.17.3 的方案——几百 MB 的视频先全量下载完才能播，外网巨慢）。
-    /// 头部只带 Authorization，与 LocalNovel 的 WebDAVClient.headers 一致：
-    /// 自定义 UA + Range 大文件请求可能被某些反代/CDN（如 Cloudflare）拦截导致无法播放。
-    static func streamingVideo(_ connection: FeiniuConnection, path: String) -> (URL, [String: String])? {
+    /// 视频/音频流式播放：探测多个候选路径后返回真正可达的远端 GET URL + 认证头。
+    ///
+    /// 404 教训（b56）：NAS 路径是**共享内相对路径**（如 /漫画/xx/01.mkv），
+    /// SMB 下载直接用没问题；但 WebDAV 的根映射不一定等于共享根——
+    /// 飞牛等系统可能要多一层共享名，webdavRootPath 也未必吻合。
+    /// 下载走 SMB 所以从未暴露过；流式直接用同一路径就 404（The requested URL
+    /// was not found on this server）。
+    /// 做法：生成候选路径（配置根+共享名、配置根、共享名、原路径），
+    /// 用 Range: bytes=0-1 小请求并行探测，命中的缓存下来下次优先用。
+    /// 全部失败返回 nil，调用方回退整文件下载。
+    static func streamingVideo(_ connection: FeiniuConnection, path: String) async -> (URL, [String: String])? {
         guard !connection.webdavHost.isEmpty else { return nil }
+        let candidates = streamCandidatePaths(connection, path: path)
+        guard !candidates.isEmpty else { return nil }
+        let key = connection.id
+        // 上次命中的候选优先（局域网/WAN 都稳），miss 再全量探测
+        if let cached = streamStyleCache.get(key), candidates.indices.contains(cached),
+           let hit = await probeSingleStream(connection, path: candidates[cached]) {
+            return hit
+        }
+        guard let (index, result) = await firstWorkingStream(connection, candidates: candidates) else {
+            return nil
+        }
+        streamStyleCache.set(key, index)
+        return result
+    }
+
+    /// 候选路径：配置根 + 原路径 / 配置根 + 共享名 + 原路径 / 共享名 + 原路径 / 原路径
+    private static func streamCandidatePaths(_ connection: FeiniuConnection, path: String) -> [String] {
+        let rel = path.hasPrefix("/") ? path : "/" + path
+        let rootRaw = connection.webdavRootPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let root = rootRaw.isEmpty ? "" : "/" + rootRaw
+        let share = connection.share.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        var list: [String] = []
+        func add(_ value: String) { if !list.contains(value) { list.append(value) } }
+        add(root + rel)
+        if !share.isEmpty {
+            add(root + "/" + share + rel)
+            add("/" + share + rel)
+        }
+        add(rel)
+        return list
+    }
+
+    /// 并行探测全部候选，第一个命中（200/206）的胜出
+    private static func firstWorkingStream(_ connection: FeiniuConnection, candidates: [String]) async -> (Int, (URL, [String: String]))? {
+        await withTaskGroup(of: (Int, URL, [String: String])?.self) { group in
+            for (index, candidate) in candidates.enumerated() {
+                guard let request = try? makeRequest(connection, method: "GET", path: candidate),
+                      let url = request.url,
+                      let auth = request.value(forHTTPHeaderField: "Authorization") else { continue }
+                group.addTask {
+                    if await probeStream(url, connection: connection) {
+                        return (index, url, ["Authorization": auth])
+                    }
+                    return nil
+                }
+            }
+            for await result in group {
+                if let result {
+                    group.cancelAll()
+                    return (result.0, (result.1, result.2))
+                }
+            }
+            return nil
+        }
+    }
+
+    private static func probeSingleStream(_ connection: FeiniuConnection, path: String) async -> (URL, [String: String])? {
         guard let request = try? makeRequest(connection, method: "GET", path: path),
-              let url = request.url else { return nil }
-        guard let auth = request.value(forHTTPHeaderField: "Authorization") else { return nil }
+              let url = request.url,
+              let auth = request.value(forHTTPHeaderField: "Authorization") else { return nil }
+        guard await probeStream(url, connection: connection) else { return nil }
         return (url, ["Authorization": auth])
     }
+
+    /// 轻量探活：只取前 2 字节，200/206 视为可用（206 还顺带确认服务端支持 Range）
+    private static func probeStream(_ url: URL, connection: FeiniuConnection, timeout: TimeInterval = 6) async -> Bool {
+        var request = URLRequest(url: url, timeoutInterval: timeout)
+        request.httpMethod = "GET"
+        request.setValue("bytes=0-1", forHTTPHeaderField: "Range")
+        let basic = Data("\(connection.effectiveWebDAVUsername):\(connection.effectiveWebDAVPassword)".utf8).base64EncodedString()
+        request.setValue("Basic \(basic)", forHTTPHeaderField: "Authorization")
+        guard let (_, response) = try? await makeSession().data(for: request),
+              let http = response as? HTTPURLResponse else { return false }
+        return http.statusCode == 200 || http.statusCode == 206
+    }
+
+    /// 探测命中样式缓存（并发安全）：connection.id → 候选索引
+    private static let streamStyleCache = StreamStyleCache()
 
     /// WebDAV DELETE：删文件；删目录时带 Depth: infinity，服务端递归删除
     static func remove(_ connection: FeiniuConnection, path: String, isDirectory: Bool) async throws {
@@ -927,9 +1025,9 @@ enum FeiniuNASService {
     /// 视频/音频流式播放入口：只要 WebDAV 配置存在就返回远端 URL + 认证头
     ///（WebDAV 服务在 NAS 上局域网/外网都可达，SMB 则无法 HTTP 流式）。
     /// 返回 nil 表示该链路不支持流式，调用方回退整文件下载。
-    static func streamingVideo(_ connection: FeiniuConnection, path: String) -> (URL, [String: String])? {
+    static func streamingVideo(_ connection: FeiniuConnection, path: String) async -> (URL, [String: String])? {
         guard !connection.webdavHost.isEmpty else { return nil }
-        return FeiniuWebDAV.streamingVideo(connection, path: path)
+        return await FeiniuWebDAV.streamingVideo(connection, path: path)
     }
 
     static func download(_ connection: FeiniuConnection, entry: NASEntry) async throws -> URL {
