@@ -30,37 +30,88 @@ extension View {
     func lnShowsTabBar() -> some View { modifier(LNShowsTabBarModifier()) }
 }
 
+/// 底部 tab 栏显隐控制。
+///
+/// 旋转 bug 修复（b57）：视频全屏会把设备转到横屏再转回来，旧实现有两个坑——
+/// 1. 安全区用 `+=` / `-=` 累加：旋转后系统会重算安全区，累加值漂移，tab 栏被顶到错误位置
+///    且点击区域错位（表现为「上移卡死」）；
+/// 2. `frame.height` 在 tabBar 被 transform 后拿到的是变换后的高度，再隐藏一次偏移翻倍。
+/// 现在改为：**保存每个子控制器原始底部安全区 → 隐藏时统一 = 原值 - 新高度，显示时原值还原**，
+/// 高度用不受 transform 影响的 `bounds.height`；旋转时按新高度重贴一次。
 enum LNTabBarController {
-    /// 记录哪些 tabBarController 当前被我们隐藏过（按对象地址），保证 inset 加减严格对称。
-    /// @MainActor 隔离：只在主线程方法里读写，同时满足 Swift 6 严格并发检查。
-    @MainActor private static var hiddenTabs = Set<ObjectIdentifier>()
+    /// 隐藏时保存的各子控制器原始底部安全区（按控制器对象地址），恢复时原样还原
+    @MainActor private static var hiddenStates: [ObjectIdentifier: [ObjectIdentifier: CGFloat]] = [:]
+    /// 旋转监听只注册一次
+    @MainActor private static var orientationObserver: NSObjectProtocol?
 
     static func setHidden(_ hidden: Bool) {
-        Task { @MainActor in apply(hidden) }
+        Task { @MainActor in
+            ensureOrientationObserver()
+            guard let controller = find() else { return }
+            apply(hidden, to: controller)
+        }
+    }
+
+    /// 旋转后重算：tab 栏高度会变（竖屏 49 / 横屏 32），
+    /// transform 与安全区必须按新高度重贴，否则回到竖屏后位置错乱、点击不响应。
+    @MainActor
+    static func refreshForCurrentOrientation() {
+        guard let controller = find(),
+              hiddenStates[ObjectIdentifier(controller)] != nil else { return }
+        apply(true, to: controller)
     }
 
     @MainActor
-    private static func apply(_ hidden: Bool) {
-        guard let controller = find() else { return }
-        let id = ObjectIdentifier(controller)
-        guard hiddenTabs.contains(id) != hidden else { return }
-
-        // isHidden 会被 SwiftUI TabView 在下次布局时改回去，这里同时用 transform 兜底：
-        // 把 tabBar 平移到屏幕外，并把子控制器的底部附加安全区减掉 tabBar 高度，
-        // 否则正文底部会空出一条。
-        let height = controller.tabBar.frame.height
-        UIView.performWithoutAnimation {
-            controller.tabBar.isHidden = hidden
-            controller.tabBar.transform = hidden
-                ? CGAffineTransform(translationX: 0, y: height)
-                : .identity
-            for child in controller.viewControllers ?? [] {
-                child.additionalSafeAreaInsets.bottom += hidden ? -height : height
-            }
-            controller.view.setNeedsLayout()
-            controller.view.layoutIfNeeded()
+    private static func ensureOrientationObserver() {
+        guard orientationObserver == nil else { return }
+        orientationObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.orientationDidChangeNotification, object: nil, queue: .main
+        ) { _ in
+            Task { @MainActor in refreshForCurrentOrientation() }
         }
-        if hidden { hiddenTabs.insert(id) } else { hiddenTabs.remove(id) }
+    }
+
+    @MainActor
+    private static func apply(_ hidden: Bool, to controller: UITabBarController) {
+        let id = ObjectIdentifier(controller)
+        // bounds.height：不受 transform 影响，隐藏后再调也拿得到真实高度
+        let height = controller.tabBar.bounds.height
+        guard height > 0 else { return }
+
+        if hidden {
+            // 只在第一次隐藏时保存原始安全区，避免重复调用覆盖原值
+            if hiddenStates[id] == nil {
+                var saved: [ObjectIdentifier: CGFloat] = [:]
+                for child in controller.viewControllers ?? [] {
+                    saved[ObjectIdentifier(child)] = child.additionalSafeAreaInsets.bottom
+                }
+                hiddenStates[id] = saved
+            }
+            let saved = hiddenStates[id] ?? [:]
+            UIView.performWithoutAnimation {
+                controller.tabBar.isHidden = true
+                controller.tabBar.transform = CGAffineTransform(translationX: 0, y: height)
+                for child in controller.viewControllers ?? [] {
+                    // 幂等赋值（不是累加）：旋转/重复调用都不会漂移
+                    child.additionalSafeAreaInsets.bottom =
+                        (saved[ObjectIdentifier(child)] ?? 0) - height
+                }
+                controller.view.setNeedsLayout()
+                controller.view.layoutIfNeeded()
+            }
+        } else {
+            let saved = hiddenStates.removeValue(forKey: id) ?? [:]
+            UIView.performWithoutAnimation {
+                controller.tabBar.isHidden = false
+                controller.tabBar.transform = .identity
+                for child in controller.viewControllers ?? [] {
+                    // 原值还原（可能是 0，也可能被其它页面设置过）
+                    child.additionalSafeAreaInsets.bottom = saved[ObjectIdentifier(child)] ?? 0
+                }
+                controller.view.setNeedsLayout()
+                controller.view.layoutIfNeeded()
+            }
+        }
     }
 
     @MainActor

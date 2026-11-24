@@ -20,6 +20,8 @@ import SwiftUI
 struct LNVideoView: View {
     let item: LNMediaItem
     let source: any LNLibrarySource
+    /// 全屏播放结束（退出全屏）回调：阅读页靠它把滚动位置拉回视频处
+    var onFullscreenEnd: (() -> Void)? = nil
 
     @State private var box = LNKSPlayerBox()
     @State private var url: URL?
@@ -52,7 +54,8 @@ struct LNVideoView: View {
                     .foregroundStyle(.secondary)
             }
             if let url, let options {
-                LNKSPlayerHost(box: box, url: url, options: options)
+                LNKSPlayerHost(box: box, url: url, options: options,
+                               autoFullscreenOnPlay: shouldAutoFullscreen)
                     .frame(height: 240)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             } else if !failed {
@@ -90,7 +93,19 @@ struct LNVideoView: View {
                 if duration != total { duration = total }
             }
             box.onFinishError = { handlePlaybackError($0) }
+            box.onFullscreenEnd = { onFullscreenEnd?() }
         }
+    }
+
+    /// 点击播放自动全屏——只对视频生效，音频（mp3/m4a/flac 等）不弹全屏。
+    /// kind 已经是 .video 的前提下，再按扩展名兜底一次（与 LNScanner.audioExts 对齐）。
+    private var shouldAutoFullscreen: Bool {
+        let ext = (item.fileName as NSString).pathExtension.lowercased()
+        let audioExts: Set<String> = [
+            "mp3", "m4a", "aac", "wav", "aiff", "aif", "flac", "caf", "ogg", "opus",
+            "ape", "wma", "amr", "m4b",
+        ]
+        return !audioExts.contains(ext)
     }
 
     // MARK: - 加载
@@ -160,9 +175,11 @@ struct LNVideoView: View {
 /// 桥接 IOSVideoPlayerView 回调的小盒子（weak delegate 的持有方）。
 final class LNKSPlayerBox: NSObject, PlayerControllerDelegate {
     /// 当前宿主的播放器视图（用于程序触发横屏全屏）
-    weak var view: IOSVideoPlayerView?
+    weak var view: LNPlayerView?
     var onDuration: ((Double) -> Void)?
     var onFinishError: ((Error?) -> Void)?
+    /// 全屏退出回调（用于阅读页把滚动位置拉回视频处，避免回到章首）
+    var onFullscreenEnd: (() -> Void)?
 
     func playerController(state _: KSPlayerState) {}
     func playerController(currentTime _: TimeInterval, totalTime: TimeInterval) {
@@ -178,14 +195,59 @@ final class LNKSPlayerBox: NSObject, PlayerControllerDelegate {
     func playerController(seek _: TimeInterval) {}
 }
 
+/// KSPlayer 播放器视图定制：
+/// 1. 内嵌（竖屏）时 KSPlayer 默认隐藏横屏按钮——这里强制显示，让用户随时能全屏；
+/// 2. 首次播放（用户点播放后才可能进入 .bufferFinished，因为 isAutoPlay=false）
+///    自动进入全屏（可通过 autoFullscreenOnPlay 关闭，音频不启用）；
+/// 3. 全屏进出回调给上层（退出后阅读页可拉回滚动位置）。
+final class LNPlayerView: IOSVideoPlayerView {
+    var autoFullscreenOnPlay = false
+    var onFullscreenChanged: ((Bool) -> Void)?
+
+    private var didAutoFullscreen = false
+    private var isInFullscreen = false
+
+    override func updateUI(isLandscape: Bool) {
+        super.updateUI(isLandscape: isLandscape)
+        // KSPlayer 竖屏内嵌下会隐藏横屏/倍速/字幕按钮；统一常显，
+        // 小卡片里也能随时全屏、调倍速、选字幕
+        landscapeButton.isHidden = false
+        toolBar.playbackRateButton.isHidden = false
+        if !srtControl.subtitleInfos.isEmpty {
+            toolBar.srtButton.isHidden = false
+        }
+    }
+
+    override func updateUI(isFullScreen: Bool) {
+        super.updateUI(isFullScreen: isFullScreen)
+        guard isInFullscreen != isFullScreen else { return }
+        isInFullscreen = isFullScreen
+        onFullscreenChanged?(isFullScreen)
+    }
+
+    override func player(layer: KSPlayerLayer, state: KSPlayerState) {
+        super.player(layer: layer, state: state)
+        guard state == .bufferFinished, autoFullscreenOnPlay, !didAutoFullscreen else { return }
+        didAutoFullscreen = true
+        // 等画面真正出来再进全屏，避免全屏后先看到长时间黑屏
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard let self, !self.isInFullscreen, self.window != nil else { return }
+            self.updateUI(isFullScreen: true)
+        }
+    }
+}
+
 /// UIKit 播放器宿主：IOSVideoPlayerView 自带控制条与全屏逻辑。
 struct LNKSPlayerHost: UIViewRepresentable {
     let box: LNKSPlayerBox
     let url: URL
     let options: KSOptions
+    /// 视频类内容才自动全屏（音频不弹全屏）
+    let autoFullscreenOnPlay: Bool
 
-    func makeUIView(context _: Context) -> IOSVideoPlayerView {
-        let playerView = IOSVideoPlayerView()
+    func makeUIView(context _: Context) -> LNPlayerView {
+        let playerView = LNPlayerView()
         // 顶栏返回键在非全屏时不做任何事，避免误触发阅读页导航返回
         playerView.backBlock = {}
         playerView.set(url: url, options: options)
@@ -193,6 +255,15 @@ struct LNKSPlayerHost: UIViewRepresentable {
         playerView.playTimeDidChange = { _, total in
             guard total > 0, total.isFinite else { return }
             box.onDuration?(total)
+        }
+        playerView.autoFullscreenOnPlay = autoFullscreenOnPlay
+        playerView.onFullscreenChanged = { [weak box] isFull in
+            // 退出全屏后留一点时间等 dismiss 动画与视图回收，再拉回滚动位置
+            guard !isFull else { return }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                box?.onFullscreenEnd?()
+            }
         }
         // KSSlider 把 thumb 区域放大了 ±20pt，默认白色 thumb 在小卡片里
         // 就是一颗顶着左边缘的大圆点；隐藏 thumb，进度由轨道填充色表达
@@ -202,14 +273,14 @@ struct LNKSPlayerHost: UIViewRepresentable {
         return playerView
     }
 
-    func updateUIView(_ playerView: IOSVideoPlayerView, context _: Context) {
+    func updateUIView(_ playerView: LNPlayerView, context _: Context) {
         // 流式失败回退下载、换章等场景：URL 变了就重设（KSPlayer 内部会重建 layer）
         if playerView.playerLayer?.url != url {
             playerView.set(url: url, options: options)
         }
     }
 
-    static func dismantleUIView(_ playerView: IOSVideoPlayerView, coordinator _: ()) {
+    static func dismantleUIView(_ playerView: LNPlayerView, coordinator _: ()) {
         // 阅读页滚走/退出时停播；全屏 reparent 不走 dismantle，不影响播放
         Task { @MainActor in
             playerView.pause()
