@@ -1,6 +1,7 @@
 import SwiftUI
 import AVKit
 import AVFoundation
+import Combine
 
 /// 章末视频 / 短剧单集：点击播放、不自动播放；支持全屏、长按倍速、旋转画面。
 ///
@@ -24,6 +25,12 @@ struct LNVideoView: View {
     @State private var failed = false
     @State private var fullscreen = false
 
+    /// 流式播放失败的具体原因（展示出来便于诊断）
+    @State private var streamError: String?
+    /// 是否允许流式（回退一次后关闭，避免死循环）
+    @State private var allowStreaming = true
+    @State private var statusCancellable: AnyCancellable?
+
     /// 倍速：长按内嵌画面循环切换；全屏里也有按钮
     @State private var speed: Float = 1.0
     @State private var speedHint: String?
@@ -33,9 +40,22 @@ struct LNVideoView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if failed {
-                Label("无法播放：\(item.fileName)", systemImage: "exclamationmark.triangle")
-                    .font(.subheadline)
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("无法播放：\(item.fileName)", systemImage: "exclamationmark.triangle")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    if let streamError {
+                        Text("流式播放失败：\(streamError)\n已回退下载播放，仍失败请把这段发给开发者")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else if let streamError {
+                // 流式失败已自动回退下载模式：播放正常但保留原因，便于远程诊断
+                Text("流式不可用已改下载播放（\(streamError)）")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
             } else if let player {
                 ZStack {
                     LNPlayerSurface(player: player, onLongPress: cycleSpeed)
@@ -122,24 +142,36 @@ struct LNVideoView: View {
     private func load() async {
         guard player == nil, !failed else { return }
         // 优先流式播放：NAS WebDAV 直接给远端 URL + 认证头，AVPlayer 按 Range 按需拉取，
-        // 秒开（照搬 LocalNovel 2.17.3 的方案）。返回 nil / 失败才回退整文件下载。
-        if let (remoteURL, headers) = try? await source.streamingVideo(for: item.path) {
+        // 秒开（照搬 LocalNovel 2.17.3 的方案）。失败自动回退整文件下载。
+        if allowStreaming, let (remoteURL, headers) = try? await source.streamingVideo(for: item.path) {
             let asset = headers.isEmpty
                 ? AVURLAsset(url: remoteURL)
                 : AVURLAsset(url: remoteURL, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
             // 按需加载，不预缓冲整个文件
-            let item = AVPlayerItem(asset: asset)
-            let p = AVPlayer(playerItem: item)
+            let newItem = AVPlayerItem(asset: asset)
+            let p = AVPlayer(playerItem: newItem)
             p.actionAtItemEnd = .pause
             // 注意：这里绝不能 p.rate = speed —— 未播放的 player 直接设 rate 会立刻开播
             player = p
-            if let cm = try? await item.asset.load(.duration) {
+            // 捕获流式失败的具体错误：AVPlayer 界面只给个禁止符号，不监听拿不到原因
+            statusCancellable = newItem.publisher(for: \.status)
+                .receive(on: DispatchQueue.main)
+                .sink { status in
+                    guard status == .failed else { return }
+                    streamError = newItem.error?.localizedDescription ?? "未知错误"
+                    // 流式不可用（TLS/认证/反代拦截/格式等）：自动回退整文件下载，保证能播
+                    allowStreaming = false
+                    statusCancellable = nil
+                    player = nil
+                    Task { await load() }
+                }
+            if let cm = try? await newItem.asset.load(.duration) {
                 let seconds = CMTimeGetSeconds(cm)
                 if seconds.isFinite, seconds > 0 { duration = seconds }
             }
             return
         }
-        // 回退：本地文件 / SMB 等不支持流式的链路，下载（本地即磁盘路径）后再播
+        // 回退：本地文件 / SMB / 流式失败后的整文件下载
         guard let url = try? await source.localURL(for: item.path) else {
             failed = true
             return

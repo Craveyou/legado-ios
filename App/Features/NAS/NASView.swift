@@ -669,13 +669,14 @@ private enum FeiniuWebDAV {
 
     /// 视频/音频流式播放：直接返回远端 GET URL + 认证头，交给 AVURLAsset 按 HTTP Range 按需拉取，
     /// 不再整文件下载（照搬 LocalNovel 2.17.3 的方案——几百 MB 的视频先全量下载完才能播，外网巨慢）。
-    /// 复用 makeRequest：端点探测、Basic 认证头、URL 构造与 list/download 完全一致。
+    /// 头部只带 Authorization，与 LocalNovel 的 WebDAVClient.headers 一致：
+    /// 自定义 UA + Range 大文件请求可能被某些反代/CDN（如 Cloudflare）拦截导致无法播放。
     static func streamingVideo(_ connection: FeiniuConnection, path: String) -> (URL, [String: String])? {
+        guard !connection.webdavHost.isEmpty else { return nil }
         guard let request = try? makeRequest(connection, method: "GET", path: path),
               let url = request.url else { return nil }
-        var headers: [String: String] = [:]
-        for (key, value) in request.allHTTPHeaderFields ?? [:] { headers[key] = value }
-        return (url, headers)
+        guard let auth = request.value(forHTTPHeaderField: "Authorization") else { return nil }
+        return (url, ["Authorization": auth])
     }
 
     /// WebDAV DELETE：删文件；删目录时带 Depth: infinity，服务端递归删除
