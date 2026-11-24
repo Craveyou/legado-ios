@@ -23,6 +23,8 @@ struct LNVideoView: View {
     var onFullscreenEnd: (() -> Void)? = nil
 
     @State private var box = LNKSPlayerBox()
+    /// 全屏 ↔ 内嵌的进度/播放状态同步（全屏是独立播放实例）
+    @State private var sync = LNPlayerSyncBox()
     @State private var url: URL?
     @State private var options: KSOptions?
     @State private var duration: Double?
@@ -97,15 +99,31 @@ struct LNVideoView: View {
             box.onRequestFullscreen = { requestFullscreen() }
         }
         .fullScreenCover(isPresented: $showFullscreen, onDismiss: {
-            // 退出全屏：把滚动位置拉回视频处（章尾），避免阅读页回到章首
+            // 退出全屏：把全屏里的进度/播放状态写回内嵌实例，再续播
+            if let layer = box.view?.playerLayer, sync.time > 0 {
+                layer.seek(time: sync.time, autoPlay: sync.wasPlaying) { _ in }
+            }
+            // 滚动位置拉回视频处（章尾），避免阅读页回到章首
             onFullscreenEnd?()
         }) {
-            LNKSPlayerFullscreen(box: box, url: url, options: options, title: item.fileName)
+            if let url, let options {
+                LNKSPlayerFullscreen(box: box, url: url, options: options,
+                                     startTime: sync.time, autoplay: sync.wasPlaying,
+                                     sync: sync, title: item.fileName)
+            }
         }
     }
 
+    /// 进入全屏：记录内嵌实例的进度/播放状态并暂停它。
+    /// 全屏用**独立播放实例**（同一个 URL + 同一份 options，认证头也在里面），
+    /// 不再在两个视图之间交接 KSPlayerLayer——
+    /// 交接依赖 UIKit 视图重新挂载 + delegate 转移，在 SwiftUI fullScreenCover 里
+    /// 实测会断（播放中中心按钮不消失、进度不走、控制条无响应）。
     private func requestFullscreen() {
-        guard box.view?.playerLayer != nil else { return }
+        guard let layer = box.view?.playerLayer else { return }
+        sync.time = layer.player.currentPlaybackTime
+        sync.wasPlaying = layer.state.isPlaying
+        layer.pause()
         showFullscreen = true
     }
 
@@ -182,6 +200,13 @@ struct LNVideoView: View {
         let h = total / 3600, m = total / 60 % 60, s = total % 60
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
     }
+}
+
+/// 全屏 ↔ 内嵌之间的进度/播放状态同步盒子。
+/// 全屏是独立的播放实例，进入时记录内嵌进度、退出时把全屏进度写回来。
+final class LNPlayerSyncBox {
+    var time: Double = 0
+    var wasPlaying = false
 }
 
 /// 桥接 IOSVideoPlayerView 回调的小盒子（weak delegate 的持有方）。
@@ -328,36 +353,48 @@ struct LNKSPlayerHost: UIViewRepresentable {
 
 /// 全屏宿主：接管内嵌播放器的 KSPlayerLayer（同一播放实例，无双音轨）。
 /// 退出时把 layer 交还内嵌视图，delegate 与画面一起回位。
+/// 全屏宿主：全屏用**独立的播放实例**（同 URL + 同 options，认证头复用），
+/// 进入时 seek 到内嵌进度并按原播放状态续播，退出时把进度写回同步盒子。
+///
+/// 为什么不再和嵌入视图共享 KSPlayerLayer：layer 交接依赖「UIKit 视图重新挂载 +
+/// delegate 转移」，在 SwiftUI 的 fullScreenCover 里实测状态回调会断——
+/// 表现为播放中中心播放按钮不消失、进度条不走、按钮点着没反应。
+/// 双实例虽然多占一份解码，但行为完全可预测，进度也能无缝衔接。
 struct LNKSFullscreenHost: UIViewRepresentable {
     let box: LNKSPlayerBox
-    /// 兜底用：万一内嵌 layer 已失效（视图重建），用它重新建一个，避免黑屏 + 按钮全死
-    let url: URL?
-    let options: KSOptions?
+    let url: URL
+    let options: KSOptions
+    /// 进入时的播放位置（秒）
+    let startTime: Double
+    /// 进入时是否正在播放
+    let autoplay: Bool
+    let sync: LNPlayerSyncBox
 
     final class Coordinator {
         let box: LNKSPlayerBox
-        init(box: LNKSPlayerBox) { self.box = box }
+        let sync: LNPlayerSyncBox
+        init(box: LNKSPlayerBox, sync: LNPlayerSyncBox) {
+            self.box = box
+            self.sync = sync
+        }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(box: box) }
+    func makeCoordinator() -> Coordinator { Coordinator(box: box, sync: sync) }
 
     func makeUIView(context _: Context) -> LNPlayerView {
         let playerView = LNPlayerView()
         playerView.configure()
         playerView.autoFullscreenOnPlay = false
-        if let layer = box.view?.playerLayer {
-            // 接管：KSPlayerLayer 会把画面视图搬进新宿主、delegate 指向新视图
-            playerView.playerLayer = layer
-        } else if let url, let options {
-            // 内嵌 layer 不可用时的兜底：直接在这里新建（宁可单独播，也不要黑屏死按钮）
-            playerView.set(url: url, options: options)
-        }
-        // 全屏期间 delegate 是新视图，把回调也接上：
-        // 否则中途流中断（finish error）会被吞掉，界面表现为一直卡住不报错
+        playerView.set(url: url, options: options)
+        // 全屏实例自己就是 layer 的 delegate（状态回调直接驱动自己的控制条）
         playerView.delegate = box
         playerView.playTimeDidChange = { _, total in
             guard total > 0, total.isFinite else { return }
             box.onDuration?(total)
+        }
+        // 续播：未 ready 时 KSPlayer 会把 seek 存起来，ready 后自动 seek + 播放
+        if let layer = playerView.playerLayer {
+            layer.seek(time: max(0, startTime), autoPlay: autoplay) { _ in }
         }
         return playerView
     }
@@ -367,13 +404,11 @@ struct LNKSFullscreenHost: UIViewRepresentable {
     static func dismantleUIView(_ playerView: LNPlayerView, coordinator: Coordinator) {
         Task { @MainActor in
             guard let layer = playerView.playerLayer else { return }
-            // 顺序很关键！VideoPlayerView.playerLayer 的 didSet 会把【旧值】的画面视图
-            // 从父视图 removeFromSuperview：
-            // 1) 先把全屏视图置空 → 画面从全屏视图摘掉；
-            // 2) 再把 layer 还给内嵌视图 → 画面重新嵌进内嵌视图、delegate 回位。
-            // 反过来做（先还再置空）会在第 2 步把刚还回去的画面又摘掉 → 退出全屏后黑屏。
+            // 记录退出时的进度与播放状态，交给 LNVideoView 的 onDismiss 写回内嵌实例
+            coordinator.sync.time = layer.player.currentPlaybackTime
+            coordinator.sync.wasPlaying = layer.state.isPlaying
+            layer.pause()
             playerView.playerLayer = nil
-            coordinator.box.view?.playerLayer = layer
         }
     }
 }
@@ -383,8 +418,11 @@ struct LNKSFullscreenHost: UIViewRepresentable {
 /// 关闭按钮留右上角。
 private struct LNKSPlayerFullscreen: View {
     let box: LNKSPlayerBox
-    let url: URL?
-    let options: KSOptions?
+    let url: URL
+    let options: KSOptions
+    let startTime: Double
+    let autoplay: Bool
+    let sync: LNPlayerSyncBox
     let title: String
 
     @Environment(\.dismiss) private var dismiss
@@ -393,7 +431,8 @@ private struct LNKSPlayerFullscreen: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            LNKSFullscreenHost(box: box, url: url, options: options)
+            LNKSFullscreenHost(box: box, url: url, options: options,
+                               startTime: startTime, autoplay: autoplay, sync: sync)
                 .ignoresSafeArea()
         }
         // 旋转按钮：垂直居中、贴右边（与中央播放按钮同一行）

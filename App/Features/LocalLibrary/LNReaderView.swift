@@ -362,7 +362,12 @@ private struct LNImagePreview: View {
     }
 
     var body: some View {
-        ReadingNavigationStack {
+        // 不用 NavigationStack 包裹：page 式 TabView 套在带导航栏/toolbar 的容器里，
+        // 分页手势和导航栈的边缘手势/布局会互相干扰，滑动偶尔停在两张图中间（b62 修复）。
+        // 顶部页码与关闭按钮自绘，结构最简，分页最稳。
+        ZStack {
+            Color.black.ignoresSafeArea()
+
             TabView(selection: $index) {
                 ForEach(images.indices, id: \.self) { i in
                     LNPreviewPage(item: images[i], source: source)
@@ -370,21 +375,43 @@ private struct LNImagePreview: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            .ignoresSafeArea(edges: .bottom)
-            .background(Color.black.ignoresSafeArea())
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            VStack {
+                HStack(spacing: 12) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 38, height: 38)
+                            .background(Color.black.opacity(0.45), in: Circle())
+                    }
+                    .accessibilityLabel("关闭大图")
+
+                    Spacer()
+
                     Text("\(index + 1) / \(images.count)")
-                        .font(.caption.monospacedDigit())
+                        .font(.footnote.monospacedDigit())
                         .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.black.opacity(0.45), in: Capsule())
+
+                    Spacer()
+
+                    // 占位：让页码真正居中（与左侧关闭键等宽）
+                    Color.clear.frame(width: 38, height: 38)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                Spacer()
             }
         }
         .preferredColorScheme(.dark)
+        .statusBar(hidden: true)
     }
 }
 
