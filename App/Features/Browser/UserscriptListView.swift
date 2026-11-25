@@ -557,7 +557,7 @@ private struct LNUserscriptDetailView: View {
 
     /// 这台设备上该脚本最近的运行记录（注入成功 / 顶层抛错都能看到）
     private var runLogSection: some View {
-        let entries = log.entries(for: current.id)
+        let entries = log.notableEntries(for: current.id)
         return VStack(alignment: .leading, spacing: 8) {
             Text("运行日志")
                 .font(.subheadline.weight(.medium))
@@ -688,10 +688,13 @@ struct LNUserscriptLogEntry: Identifiable {
     let scriptName: String
     let message: String
     let isError: Bool
+    /// 来自脚本自己的 console.log（噪声较多，日志页可单独过滤）
+    let isConsole: Bool
 }
 
-/// 脚本注入与报错的运行日志（内存里最多留 100 条，不落盘）。
-/// 用途：脚本「注入了但控件没出来」时，这里能直接看到是顶层代码抛错还是压根没跑。
+/// 脚本注入与报错的运行日志（内存里最多留 400 条，不落盘）。
+/// 用途：脚本「注入了但控件没出来」时，这里能直接看到是顶层代码抛错、异步回调抛错，
+/// 还是脚本自己的 console 输出说了什么。
 @MainActor
 final class LNUserscriptLog: ObservableObject {
     static let shared = LNUserscriptLog()
@@ -701,19 +704,25 @@ final class LNUserscriptLog: ObservableObject {
     static let environmentID = UUID(uuidString: "00000000-0000-0000-0000-0000000000E1")!
 
     @Published private(set) var entries: [LNUserscriptLogEntry] = []
-    private let limit = 100
+    private let limit = 400
 
-    func record(scriptID: UUID, name: String, message: String, isError: Bool) {
-        let trimmed = message.count > 1500 ? String(message.prefix(1500)) + "…" : message
+    func record(scriptID: UUID, name: String, message: String, isError: Bool, isConsole: Bool = false) {
+        let trimmed = message.count > 2000 ? String(message.prefix(2000)) + "…" : message
         entries.insert(LNUserscriptLogEntry(date: Date(),
                                             scriptID: scriptID,
                                             scriptName: name,
                                             message: trimmed,
-                                            isError: isError),
+                                            isError: isError,
+                                            isConsole: isConsole),
                        at: 0)
         if entries.count > limit {
             entries.removeLast(entries.count - limit)
         }
+    }
+
+    /// 详情页用：不含 console 噪声，只看生命周期与错误
+    func notableEntries(for scriptID: UUID) -> [LNUserscriptLogEntry] {
+        entries.filter { $0.scriptID == scriptID && !$0.isConsole }
     }
 
     func entries(for scriptID: UUID) -> [LNUserscriptLogEntry] {
@@ -727,25 +736,50 @@ struct LNUserscriptLogView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var log = LNUserscriptLog.shared
 
+    @State private var filter: Filter = .all
+
+    private enum Filter: String, CaseIterable {
+        case all = "全部"
+        case console = "控制台"
+        case error = "错误"
+    }
+
     private static let formatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
 
+    private var visibleEntries: [LNUserscriptLogEntry] {
+        switch filter {
+        case .all: return log.entries
+        case .console: return log.entries.filter(\.isConsole)
+        case .error: return log.entries.filter(\.isError)
+        }
+    }
+
     var body: some View {
         ReadingNavigationStack {
-            Group {
-                if log.entries.isEmpty {
+            VStack(spacing: 0) {
+                Picker("过滤", selection: $filter) {
+                    ForEach(Filter.allCases, id: \.self) { item in
+                        Text(item.rawValue).tag(item)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+
+                if visibleEntries.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "text.alignleft")
                             .font(.system(size: 40, weight: .light))
                             .foregroundStyle(ReadingTheme.ink.opacity(0.3))
                             .accessibilityHidden(true)
-                        Text("还没有运行记录")
+                        Text(log.entries.isEmpty ? "还没有运行记录" : "这个分类下没有记录")
                             .font(.headline)
                             .foregroundStyle(ReadingTheme.ink.opacity(0.7))
-                        Text("打开一个匹配脚本的网页后，这里会显示脚本是否注入成功、以及抛了什么错。")
+                        Text("打开一个匹配脚本的网页后，这里会显示脚本是否注入成功、脚本自己的 console 输出、以及抛了什么错。")
                             .font(.footnote)
                             .foregroundStyle(ReadingTheme.ink.opacity(0.5))
                             .multilineTextAlignment(.center)
@@ -753,7 +787,7 @@ struct LNUserscriptLogView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(log.entries) { entry in
+                    List(visibleEntries) { entry in
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 6) {
                                 Image(systemName: entry.isError ? "exclamationmark.triangle.fill" : "checkmark.circle")

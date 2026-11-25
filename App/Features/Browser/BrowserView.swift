@@ -693,6 +693,28 @@ struct LNBrowserWebHost: UIViewRepresentable {
                                                   isError: false)
                 }
             }
+            // DOM 节点数采样：脚本有没有往页面里真的加东西，这两个数字一对比就知道
+            recordDOMNodeCount(in: webView, label: "加载完成时")
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                self.recordDOMNodeCount(in: webView, label: "2.5 秒后")
+            }
+        }
+
+        /// 记录当前页面节点数，用于判断脚本是否真的渲染了 UI
+        private func recordDOMNodeCount(in webView: WKWebView, label: String) {
+            let probe = "(function(){ return { n: document.querySelectorAll('*').length, b: (document.body ? document.body.children.length : -1) }; })()"
+            webView.evaluateJavaScript(probe) { value, _ in
+                guard let dict = value as? [String: Any],
+                      let nodes = dict["n"] as? Int,
+                      let bodyChildren = dict["b"] as? Int else { return }
+                Task { @MainActor in
+                    LNUserscriptLog.shared.record(scriptID: LNUserscriptLog.environmentID,
+                                                  name: "页面 DOM",
+                                                  message: "\(label)：\(nodes) 个节点，body 子元素 \(bodyChildren) 个",
+                                                  isError: false)
+                }
+            }
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

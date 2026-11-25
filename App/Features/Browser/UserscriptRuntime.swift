@@ -78,6 +78,7 @@ final class LNUserscriptRuntime: NSObject, WKScriptMessageHandler {
         return """
         (function(){
         var __lnId = \(Self.jsonString(id));
+        var __lnSourceTag = \(Self.jsonString(Self.sourceTag(id)));
         var __lnBridge = (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(Self.messageHandlerName)) || null;
         function __lnPost(payload){ try { if (__lnBridge) { __lnBridge.postMessage(payload); } } catch (e) {} }
         var __gmStore = \(storeLiteral);
@@ -154,6 +155,86 @@ final class LNUserscriptRuntime: NSObject, WKScriptMessageHandler {
           script: { name: \(name), version: \(version), namespace: \(namespace) }
         };
 
+        // ===== 控制台桥接 =====
+        // 脚本自己的 console.log 会被收进 App 的「运行日志」。油猴脚本通常把关键诊断
+        // （平台判断、命中哪个分支、为什么跳过）打在 console 里，接出来就能直接看。
+        try {
+          if (!window.__lnConsoleBridged) {
+            window.__lnConsoleBridged = true;
+            // 限流：页面自己的日志可能很密，每秒最多转发 20 条，防止把主线程压住
+            var __lnLogWindowStart = 0;
+            var __lnLogBudget = 0;
+            ['log', 'info', 'warn', 'error'].forEach(function (level) {
+              var original = console[level];
+              console[level] = function () {
+                try {
+                  var now = Date.now();
+                  if (now - __lnLogWindowStart > 1000) { __lnLogWindowStart = now; __lnLogBudget = 0; }
+                  if (__lnLogBudget < 20) {
+                    __lnLogBudget++;
+                    var parts = [];
+                    for (var i = 0; i < arguments.length; i++) {
+                      var arg = arguments[i];
+                      var text;
+                      try { text = (arg && typeof arg === 'object') ? JSON.stringify(arg) : String(arg); }
+                      catch (e) { text = String(arg); }
+                      parts.push(text);
+                    }
+                    var message = parts.join(' ').slice(0, 1600);
+                    if (message) { __lnPost({ op: 'console', script: __lnId, level: level, message: message }); }
+                  }
+                } catch (e) {}
+                try { if (original) { original.apply(console, arguments); } } catch (e) {}
+              };
+            });
+          }
+        } catch (e) {}
+
+        // ===== 异步阶段的错误 =====
+        // 顶层代码在下面的 try 里，但 DOMContentLoaded / setTimeout 回调里抛的错抓不到，
+        // 那恰恰是「注入了却不出控件」最常见的位置。
+        // 有 //# sourceURL 标记的认作脚本自己的错；认不出来的也记下来（标 [页面侧错误]），
+        // 去重 + 上限 60 条，避免被页面本身的报错刷屏。
+        try {
+          var __lnSeenErrors = Object.create(null);
+          var __lnSeenCount = 0;
+          var __lnClaim = function (raw) {
+            var filename = (raw && raw.filename) || '';
+            var stack = (raw && raw.error && raw.error.stack) || '';
+            var ours = (filename + stack).indexOf(__lnSourceTag) !== -1;
+            return ours;
+          };
+          window.addEventListener('error', function (ev) {
+            try {
+              var message = (ev && ev.message) || '';
+              var stack = (ev && ev.error && ev.error.stack) || '';
+              if (!message && !stack) { return; }
+              var key = message.slice(0, 120) + '|' + ((ev && ev.lineno) || 0);
+              if (__lnSeenErrors[key] || __lnSeenCount > 60) { return; }
+              __lnSeenErrors[key] = true;
+              __lnSeenCount++;
+              var prefix = __lnClaim(ev) ? '' : '[页面侧错误] ';
+              __lnPost({
+                op: 'error',
+                script: __lnId,
+                message: prefix + message + '\\n@ ' + ((ev && ev.filename) || '') + ':' + ((ev && ev.lineno) || 0) + '\\n' + stack
+              });
+            } catch (e) {}
+          });
+          window.addEventListener('unhandledrejection', function (ev) {
+            try {
+              var reason = ev && ev.reason;
+              var stack = (reason && reason.stack) || String(reason || '');
+              if (!stack) { return; }
+              var key = 'rej|' + stack.slice(0, 120);
+              if (__lnSeenErrors[key] || __lnSeenCount > 60) { return; }
+              __lnSeenErrors[key] = true;
+              __lnSeenCount++;
+              __lnPost({ op: 'error', script: __lnId, message: 'Promise 未捕获:\\n' + stack });
+            } catch (e) {}
+          });
+        } catch (e) {}
+
         // ===== 用户脚本正文 =====
         // 包一层 try：脚本顶层代码抛错时整段静默死掉，用户只会看到「控件没出来」，
         // 这里把错误回传给原生，脚本详情页能直接看到原因。
@@ -169,7 +250,13 @@ final class LNUserscriptRuntime: NSObject, WKScriptMessageHandler {
           } catch (e) {}
         }
         })();
+        //# sourceURL=\(Self.sourceTag(id))
         """
+    }
+
+    /// 单个脚本的 sourceURL 标记，用于把异步错误认领回具体脚本
+    nonisolated static func sourceTag(_ id: String) -> String {
+        "ln-userscript-" + id + ".js"
     }
 
     private static func jsonString(_ value: String) -> String {
@@ -209,6 +296,17 @@ final class LNUserscriptRuntime: NSObject, WKScriptMessageHandler {
                 print("[userscript] \(text)")
                 if let id = scriptID {
                     LNUserscriptLog.shared.record(scriptID: id, name: name(for: id), message: text, isError: false)
+                }
+            }
+
+        case "console":
+            if let id = scriptID {
+                let level = body["level"] as? String ?? "log"
+                let text = body["message"] as? String ?? ""
+                if !text.isEmpty {
+                    LNUserscriptLog.shared.record(scriptID: id, name: name(for: id),
+                                                  message: text, isError: level == "error",
+                                                  isConsole: true)
                 }
             }
 
