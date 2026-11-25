@@ -696,6 +696,10 @@ struct LNUserscriptLogEntry: Identifiable {
 final class LNUserscriptLog: ObservableObject {
     static let shared = LNUserscriptLog()
 
+    /// 「不是脚本自身」的环境类记录（如 User-Agent）挂在这个伪 id 上，
+    /// 不会混进某个脚本的详情页，只出现在全量日志里。
+    static let environmentID = UUID(uuidString: "00000000-0000-0000-0000-0000000000E1")!
+
     @Published private(set) var entries: [LNUserscriptLogEntry] = []
     private let limit = 100
 
@@ -722,6 +726,12 @@ final class LNUserscriptLog: ObservableObject {
 struct LNUserscriptLogView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var log = LNUserscriptLog.shared
+
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
 
     var body: some View {
         ReadingNavigationStack {
@@ -776,8 +786,25 @@ struct LNUserscriptLogView: View {
                     Button("关闭") { dismiss() }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("清空") { log.clear() }
+                    Menu {
+                        Button {
+                            let text = log.entries
+                                .map { "\(Self.formatter.string(from: $0.date)) [\($0.scriptName)] \($0.message)" }
+                                .joined(separator: "\n")
+                            UIPasteboard.general.string = text
+                        } label: {
+                            Label("复制全部", systemImage: "doc.on.doc")
+                        }
+                        Button(role: .destructive) {
+                            log.clear()
+                        } label: {
+                            Label("清空", systemImage: "trash")
+                        }
                         .disabled(log.entries.isEmpty)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("日志操作")
                 }
             }
         }

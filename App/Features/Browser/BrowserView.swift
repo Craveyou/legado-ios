@@ -17,6 +17,8 @@ final class LNBrowserModel: ObservableObject {
     @Published var errorMessage: String?
     /// 是否已经打开过页面：false 时显示起始页（避免一进来就是一片白）
     @Published var hasLoadedOnce = false
+    /// 请求桌面版网站（默认移动版，脚本的移动端分支才会生效）
+    @Published var prefersDesktopSite = false
 
     weak var webView: WKWebView?
 
@@ -54,6 +56,16 @@ final class LNBrowserModel: ObservableObject {
     func goForward() { webView?.goForward() }
     func reload() { webView?.reload() }
     func stop() { webView?.stopLoading() }
+
+    /// 切换移动 / 桌面版。UA 必须在这里立刻写进 WKWebView 再 reload，
+    /// 否则 reload 会赶在 SwiftUI 的 updateUIView 之前用旧 UA 发请求。
+    func toggleDesktopSite() {
+        prefersDesktopSite.toggle()
+        webView?.customUserAgent = prefersDesktopSite
+            ? LNBrowserUserAgent.desktop
+            : LNBrowserUserAgent.mobile
+        webView?.reload()
+    }
 
     /// 回到起始页：停掉当前加载并清掉展示状态（webView 留在原地被起始页盖住）
     func goHome() {
@@ -162,6 +174,28 @@ final class LNBrowserFavorites: ObservableObject {
         guard let data = try? JSONEncoder().encode(items) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
+}
+
+// MARK: - User-Agent
+
+/// 明确给站点一个 iOS 移动端 UA。
+///
+/// 为什么不能靠 WKWebView 默认值：默认 UA 要经 `preferredContentMode` 决定，
+/// 部分场景（iPad、站点声明、系统版本差异）会退化成 `Macintosh; Intel Mac OS X`，
+/// 此时油猴脚本里 `/iPhone|iPad|iPod/.test(navigator.userAgent)` 全部落空，
+/// 脚本就会按「桌面端」分支渲染控件。这里把标识写死，行为可预期。
+enum LNBrowserUserAgent {
+    static var mobile: String {
+        let version = UIDevice.current.systemVersion
+        let underscored = version.replacingOccurrences(of: ".", with: "_")
+        let major = version.split(separator: ".").first.map(String.init) ?? "18"
+        let device = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+        let osToken = device == "iPad" ? "CPU OS" : "CPU iPhone OS"
+        return "Mozilla/5.0 (\(device); \(osToken) \(underscored) like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/\(major).0 Mobile/15E148 Safari/604.1"
+    }
+
+    /// Safari 在 Mac 上的标准 UA
+    static let desktop = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 }
 
 // MARK: - 浏览器页面
@@ -322,6 +356,11 @@ struct LNBrowserView: View {
                 addressFocused = false
                 addressText = ""
                 model.goHome()
+            }
+            barButton(symbol: model.prefersDesktopSite ? "iphone" : "desktopcomputer",
+                      label: model.prefersDesktopSite ? "切换到移动版网站" : "切换到桌面版网站",
+                      enabled: model.hasLoadedOnce) {
+                model.toggleDesktopSite()
             }
             barButton(symbol: "square.and.arrow.up", label: "分享当前页面",
                       enabled: !model.currentURLString.isEmpty) {
@@ -570,6 +609,10 @@ struct LNBrowserWebHost: UIViewRepresentable {
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsLinkPreview = true
         webView.scrollView.contentInsetAdjustmentBehavior = .automatic
+        // 默认给移动端 UA：脚本的 (移动端 / 桌面端) 分支全靠它判断
+        webView.customUserAgent = model.prefersDesktopSite
+            ? LNBrowserUserAgent.desktop
+            : LNBrowserUserAgent.mobile
         webView.isOpaque = false
         webView.backgroundColor = UIColor(ReadingTheme.canvas)
         webView.scrollView.backgroundColor = UIColor(ReadingTheme.canvas)
@@ -581,6 +624,10 @@ struct LNBrowserWebHost: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.model = model
+        let desired = model.prefersDesktopSite ? LNBrowserUserAgent.desktop : LNBrowserUserAgent.mobile
+        if webView.customUserAgent != desired {
+            webView.customUserAgent = desired
+        }
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
@@ -595,6 +642,8 @@ struct LNBrowserWebHost: UIViewRepresentable {
         var model: LNBrowserModel
         let runtime = LNUserscriptRuntime(store: LNUserscriptStore.shared)
         private var observations: [NSKeyValueObservation] = []
+        /// 去重：UA 没变就不重复写日志
+        private var lastRecordedUserAgent: String?
 
         init(model: LNBrowserModel) {
             self.model = model
@@ -631,6 +680,19 @@ struct LNBrowserWebHost: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             model.errorMessage = nil
             model.isLoading = false
+            // 把真实 UA 记进运行日志：脚本按 UA 分移动端/桌面端分支，
+            // 控件形态不对时先看这一行
+            webView.evaluateJavaScript("navigator.userAgent") { [weak self] value, _ in
+                guard let ua = value as? String else { return }
+                Task { @MainActor in
+                    guard let self, self.lastRecordedUserAgent != ua else { return }
+                    self.lastRecordedUserAgent = ua
+                    LNUserscriptLog.shared.record(scriptID: LNUserscriptLog.environmentID,
+                                                  name: "浏览器环境",
+                                                  message: "User-Agent: \(ua)",
+                                                  isError: false)
+                }
+            }
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -662,12 +724,16 @@ struct LNBrowserWebHost: UIViewRepresentable {
             return nil
         }
 
-        /// 只接管 http(s)/about/file/data，其它（tel、mailto、itms-apps…）交给系统
+        /// 只接管 http(s)/about/file/data，其它（tel、mailto、itms-apps…）交给系统。
+        /// 用带 preferences 的重载：每次导航明确指定移动/桌面形态，比在 configuration 上改更可靠。
         func webView(_ webView: WKWebView,
                      decidePolicyFor navigationAction: WKNavigationAction,
-                     decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+                     preferences: WKWebpagePreferences,
+                     decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
+            preferences.preferredContentMode = model.prefersDesktopSite ? .desktop : .mobile
+
             guard let url = navigationAction.request.url else {
-                decisionHandler(.allow)
+                decisionHandler(.allow, preferences)
                 return
             }
             let scheme = url.scheme?.lowercased() ?? ""
@@ -676,10 +742,10 @@ struct LNBrowserWebHost: UIViewRepresentable {
                 if navigationAction.targetFrame?.isMainFrame ?? true {
                     runtime.installScripts(for: url, in: webView)
                 }
-                decisionHandler(.allow)
+                decisionHandler(.allow, preferences)
             } else {
                 UIApplication.shared.open(url, options: [:], completionHandler: nil)
-                decisionHandler(.cancel)
+                decisionHandler(.cancel, preferences)
             }
         }
 
