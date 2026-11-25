@@ -106,6 +106,16 @@ struct LNBrowserView: View {
         .navigationTitle("浏览器")
         .navigationBarTitleDisplayMode(.inline)
         .lnShowsTabBar()
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                NavigationLink {
+                    LNUserscriptListView()
+                } label: {
+                    Image(systemName: "curlybraces")
+                }
+                .accessibilityLabel("油猴脚本")
+            }
+        }
         // 页面导航后同步地址栏；用户正在编辑时不打断输入
         .onChange(of: model.currentURLString) { newValue in
             guard !addressFocused else { return }
@@ -347,6 +357,9 @@ struct LNBrowserWebHost: UIViewRepresentable {
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        // 油猴 GM_* 调用的回传通道
+        configuration.userContentController.add(context.coordinator.runtime,
+                                                name: LNUserscriptRuntime.messageHandlerName)
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
@@ -359,6 +372,7 @@ struct LNBrowserWebHost: UIViewRepresentable {
         webView.scrollView.backgroundColor = UIColor(ReadingTheme.canvas)
 
         context.coordinator.attach(webView)
+        context.coordinator.runtime.attach(to: webView)
         return webView
     }
 
@@ -368,6 +382,7 @@ struct LNBrowserWebHost: UIViewRepresentable {
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
         webView.stopLoading()
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: LNUserscriptRuntime.messageHandlerName)
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
     }
@@ -375,6 +390,7 @@ struct LNBrowserWebHost: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var model: LNBrowserModel
+        let runtime = LNUserscriptRuntime(store: LNUserscriptStore.shared)
         private var observations: [NSKeyValueObservation] = []
 
         init(model: LNBrowserModel) {
@@ -453,6 +469,10 @@ struct LNBrowserWebHost: UIViewRepresentable {
             }
             let scheme = url.scheme?.lowercased() ?? ""
             if scheme.isEmpty || ["http", "https", "about", "file", "data"].contains(scheme) {
+                // 主框架导航才重新装配脚本：iframe 导航不能把主页面已注入的脚本清掉
+                if navigationAction.targetFrame?.isMainFrame ?? true {
+                    runtime.installScripts(for: url, in: webView)
+                }
                 decisionHandler(.allow)
             } else {
                 UIApplication.shared.open(url, options: [:], completionHandler: nil)

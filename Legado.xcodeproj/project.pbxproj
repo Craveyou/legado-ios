@@ -6,6 +6,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		EA5F00000000000000000001 /* UserscriptModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB5F00000000000000000001 /* UserscriptModel.swift */; };
+		EA5F00000000000000000002 /* UserscriptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB5F00000000000000000002 /* UserscriptStore.swift */; };
+		EA5F00000000000000000003 /* UserscriptRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB5F00000000000000000003 /* UserscriptRuntime.swift */; };
+		EA5F00000000000000000004 /* UserscriptListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB5F00000000000000000004 /* UserscriptListView.swift */; };
 		L1000000000000000000001F /* LNTabBarVisibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = L2000000000000000000001F /* LNTabBarVisibility.swift */; };
 		L1000000000000000000001E /* LNImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = L2000000000000000000001E /* LNImageLoader.swift */; };
 		L1000000000000000000001C /* LNNASCategoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = L2000000000000000000001C /* LNNASCategoryView.swift */; };
@@ -158,6 +162,10 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		EB5F00000000000000000001 /* UserscriptModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserscriptModel.swift; sourceTree = "<group>"; };
+		EB5F00000000000000000002 /* UserscriptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserscriptStore.swift; sourceTree = "<group>"; };
+		EB5F00000000000000000003 /* UserscriptRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserscriptRuntime.swift; sourceTree = "<group>"; };
+		EB5F00000000000000000004 /* UserscriptListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserscriptListView.swift; sourceTree = "<group>"; };
 		L2000000000000000000001F /* LNTabBarVisibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LNTabBarVisibility.swift; sourceTree = "<group>"; };
 		L2000000000000000000001E /* LNImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LNImageLoader.swift; sourceTree = "<group>"; };
 		L2000000000000000000001C /* LNNASCategoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LNNASCategoryView.swift; sourceTree = "<group>"; };
@@ -461,6 +469,10 @@
 			isa = PBXGroup;
 			children = (
 				B20000000000000000000001 /* BrowserView.swift */,
+				EB5F00000000000000000001 /* UserscriptModel.swift */,
+				EB5F00000000000000000002 /* UserscriptStore.swift */,
+				EB5F00000000000000000003 /* UserscriptRuntime.swift */,
+				EB5F00000000000000000004 /* UserscriptListView.swift */,
 			);
 			path = Features/Browser;
 			sourceTree = "<group>";
@@ -833,6 +845,10 @@
 				A1000000000000000000000A /* DemoContent.swift in Sources */,
 				A1000000000000000000000B /* ExploreView.swift in Sources */,
 				B10000000000000000000001 /* BrowserView.swift in Sources */,
+				EA5F00000000000000000001 /* UserscriptModel.swift in Sources */,
+				EA5F00000000000000000002 /* UserscriptStore.swift in Sources */,
+				EA5F00000000000000000003 /* UserscriptRuntime.swift in Sources */,
+				EA5F00000000000000000004 /* UserscriptListView.swift in Sources */,
 				N10000000000000000000001 /* NASView.swift in Sources */,
 				E71000000000000000000001 /* ExploreSourceViewModel.swift in Sources */,
 				A1000000000000000000000C /* SourceDebugView.swift in Sources */,
@@ -995,7 +1011,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 67;
+				CURRENT_PROJECT_VERSION = 68;
 				DEVELOPMENT_ASSET_PATHS = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
@@ -1016,7 +1032,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 67;
+				CURRENT_PROJECT_VERSION = 68;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
