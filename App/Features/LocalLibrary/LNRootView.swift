@@ -187,7 +187,9 @@ struct LNMovieListView: View {
                 .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
                 .map { LNMediaItem(path: $0.path, fileName: $0.name, kind: .video) }
         } catch {
-            errorMessage = error.localizedDescription
+            // 只显示 SMB 错误码用户看不出在哪改，把实际探测路径一起报出来
+            let path = source.categoryRoot(.movie)
+            errorMessage = "读取目录 \(path) 失败：\(error.localizedDescription)\n\n到 NAS 连接编辑页检查「电影」分类目录，或直接用浏览按钮选一个实际存在的文件夹。"
         }
     }
 }

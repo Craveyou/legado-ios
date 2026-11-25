@@ -1287,6 +1287,8 @@ struct FeiniuConnectionFormView: View {
     @State private var webdavPassword: String
     /// 各分类的 NAS 目录（key = LNCategory.rawValue），留空用默认同名文件夹
     @State private var categoryPaths: [String: String]
+    /// 正在浏览哪个分类的目录（nil = 没在浏览）
+    @State private var browsingCategory: LNCategory?
     @State private var testing = false
     @State private var testResult: String?
     @State private var errorMessage: String?
@@ -1414,17 +1416,30 @@ struct FeiniuConnectionFormView: View {
 
                 Section {
                     ForEach(LNCategory.allCases) { category in
-                        TextField(defaultPathPlaceholder(category),
-                                  text: pathBinding(category))
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .keyboardType(.URL)
-                            .accessibilityIdentifier("nas.form.categoryPath.\(category.rawValue)")
+                        HStack(spacing: 8) {
+                            TextField(defaultPathPlaceholder(category),
+                                      text: pathBinding(category))
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .keyboardType(.URL)
+                                .accessibilityIdentifier("nas.form.categoryPath.\(category.rawValue)")
+                            // 直接浏览 NAS 目录选，避免手填路径踩到 STATUS_OBJECT_PATH_NOT_FOUND
+                            Button {
+                                browsingCategory = category
+                            } label: {
+                                Image(systemName: "folder")
+                                    .font(.system(size: 16))
+                                    .frame(width: 30, height: 30)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityLabel("浏览\(category.label)目录")
+                        }
                     }
                 } header: {
                     Text("分类目录（可选）")
                 } footer: {
-                    Text("漫画 / 整理 / 短剧 / 电影 在 NAS 上的目录（从共享根算起）。留空即用默认的 /漫画、/整理、/短剧、/电影；也可以填 /media/comics 这类绝对路径。")
+                    Text("漫画 / 整理 / 短剧 / 电影 在 NAS 上的目录（从共享根算起）。留空即用默认的 /漫画、/整理、/短剧、/电影；也可以点文件夹图标直接浏览挑选。")
                 }
 
                 Section {
@@ -1454,6 +1469,12 @@ struct FeiniuConnectionFormView: View {
             }
             .navigationTitle(connection == nil ? "添加飞牛 NAS" : "编辑连接")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(item: $browsingCategory) { category in
+                NASDirectoryPicker(connection: draft) { selected in
+                    pathBinding(category).wrappedValue = selected
+                    browsingCategory = nil
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
@@ -1496,5 +1517,138 @@ struct FeiniuConnectionFormView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+// MARK: - NAS 目录浏览（给分类目录选路径）
+
+/// 用当前草稿连接直接列 NAS 目录，点选一个真实存在的文件夹，
+/// 避免手填路径时把 /媒体/电影 写成 /media/电影 之类导致 STATUS_OBJECT_PATH_NOT_FOUND。
+private struct NASDirectoryPicker: View {
+    let connection: FeiniuConnection
+    let onSelect: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var currentPath = "/"
+    @State private var directories: [NASEntry] = []
+    @State private var errorMessage: String?
+    @State private var loading = false
+
+    var body: some View {
+        ReadingNavigationStack {
+            VStack(spacing: 0) {
+                // 当前路径：让用户随时知道自己站在哪一层
+                HStack(spacing: 6) {
+                    Image(systemName: "folder")
+                        .foregroundStyle(ReadingTheme.accent)
+                        .accessibilityHidden(true)
+                    Text(currentPath)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(ReadingTheme.ink.opacity(0.7))
+                        .lineLimit(1)
+                        .textSelection(.enabled)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(ReadingTheme.groupedCanvas)
+
+                if let errorMessage {
+                    ReadingUnavailableView("读取失败",
+                                           systemImage: "folder.badge.questionmark",
+                                           description: Text(errorMessage))
+                    Button("重试") { Task { await load() } }
+                        .buttonStyle(.bordered)
+                        .padding(.top, 8)
+                } else {
+                    List {
+                        if currentPath != "/" {
+                            Button {
+                                goParent()
+                            } label: {
+                                Label("返回上级目录", systemImage: "arrow.up")
+                                    .foregroundStyle(ReadingTheme.accent)
+                            }
+                            .accessibilityLabel("返回上级目录")
+                        }
+                        ForEach(directories) { entry in
+                            Button {
+                                currentPath = entry.path
+                                Task { await load() }
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "folder.fill")
+                                        .foregroundStyle(ReadingTheme.accent)
+                                        .frame(width: 24)
+                                    Text(entry.name)
+                                        .foregroundStyle(ReadingTheme.ink)
+                                    Spacer(minLength: 8)
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundStyle(ReadingTheme.ink.opacity(0.3))
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("进入 \(entry.name)")
+                        }
+                    }
+                    .listStyle(.plain)
+                    .overlay {
+                        if loading && directories.isEmpty {
+                            ProgressView()
+                                .accessibilityLabel("正在读取目录")
+                        }
+                    }
+                }
+
+                Button {
+                    onSelect(currentPath)
+                    dismiss()
+                } label: {
+                    Label("选择当前目录", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(ReadingTheme.accentFill)
+                .padding(16)
+                .disabled(errorMessage != nil)
+            }
+            .background(ReadingTheme.canvas.ignoresSafeArea())
+            .navigationTitle("选择目录")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("根目录") {
+                        currentPath = "/"
+                        Task { await load() }
+                    }
+                    .accessibilityLabel("回到共享根目录")
+                }
+            }
+            .task { await load() }
+        }
+    }
+
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        defer { loading = false }
+        do {
+            let items = try await FeiniuNASService.list(connection, path: currentPath)
+            directories = items.filter(\.isDirectory)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func goParent() {
+        let parent = (currentPath as NSString).deletingLastPathComponent
+        currentPath = parent.isEmpty ? "/" : parent
+        Task { await load() }
     }
 }
