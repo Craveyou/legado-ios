@@ -60,6 +60,31 @@ struct FeiniuConnection: Codable, Identifiable, Hashable, Sendable {
         return trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
     }
 
+    /// WebDAV 上对应「SMB 共享根」的前缀。
+    /// 分类路径 / LNNode.path 一律是共享根相对路径（SMB 语义）；若 WebDAV 把同一目录挂在
+    /// /nas 下，这里就是 /nas。留 "/" 表示两边根一致。
+    var webdavRootPrefix: String {
+        let trimmed = webdavRootPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return trimmed.isEmpty ? "" : "/" + trimmed
+    }
+
+    /// 共享根相对路径 → WebDAV 实际请求路径。
+    func webdavPath(for canonicalPath: String) -> String {
+        let rel = canonicalPath.hasPrefix("/") ? canonicalPath : "/" + canonicalPath
+        let prefix = webdavRootPrefix
+        guard !prefix.isEmpty else { return rel }
+        return rel == "/" ? prefix : prefix + rel
+    }
+
+    /// WebDAV 路径 → 共享根相对路径；不在映射内的路径返回 nil。
+    func canonicalPath(from webdavPath: String) -> String? {
+        let prefix = webdavRootPrefix
+        guard !prefix.isEmpty else { return webdavPath.hasPrefix("/") ? webdavPath : "/" + webdavPath }
+        if webdavPath == prefix { return "/" }
+        guard webdavPath.hasPrefix(prefix + "/") else { return nil }
+        return String(webdavPath.dropFirst(prefix.count))
+    }
+
     var smbAddress: String {
         guard !smbHost.isEmpty else { return "未配置地址" }
         return "smb://\(smbHost):\(smbPort)/\(share)"
@@ -569,18 +594,19 @@ private enum FeiniuSMB {
 /// 避免每次开视频都先踩一次 404。
 private final class StreamStyleCache: @unchecked Sendable {
     private let lock = NSLock()
-    private var styles: [UUID: Int] = [:]
+    // 用整条连接做 key：根路径/共享名/账号一改，候选列表就变了，旧索引必须失效。
+    private var styles: [FeiniuConnection: Int] = [:]
 
-    func get(_ id: UUID) -> Int? {
+    func get(_ connection: FeiniuConnection) -> Int? {
         lock.lock()
         defer { lock.unlock() }
-        return styles[id]
+        return styles[connection]
     }
 
-    func set(_ id: UUID, _ index: Int) {
+    func set(_ connection: FeiniuConnection, _ index: Int) {
         lock.lock()
         defer { lock.unlock() }
-        styles[id] = index
+        styles[connection] = index
     }
 }
 
@@ -665,7 +691,10 @@ private enum FeiniuWebDAV {
     }
 
     static func list(_ connection: FeiniuConnection, path: String) async throws -> [NASEntry] {
-        let (data, response) = try await request(connection, method: "PROPFIND", path: path, depth: "1")
+        // path 是「共享根相对路径」，与 SMB 完全同义。WebDAV 可能把同一棵树挂在 /nas 之类前缀下，
+        // 这里做双向映射：请求时加前缀，返回时剥掉，上层拿到的 NASEntry.path 与链路无关。
+        let requestPath = connection.webdavPath(for: path)
+        let (data, response) = try await request(connection, method: "PROPFIND", path: requestPath, depth: "1")
         guard response.statusCode == 200 || response.statusCode == 207 else {
             throw FeiniuError.http(response.statusCode)
         }
@@ -675,17 +704,18 @@ private enum FeiniuWebDAV {
         xml.delegate = parser
         guard xml.parse() else { throw xml.parserError ?? FeiniuError.invalidXML }
 
-        let root = normalized(path)
+        let root = normalized(requestPath)
         return parser.items.compactMap { item in
             let itemPath = normalized(item.path)
             guard !itemPath.isEmpty, itemPath != root else { return nil }  // 过滤目录自身
-            let name = item.name.isEmpty ? (item.path as NSString).lastPathComponent : item.name
-            return NASEntry(path: item.path, name: name, isDirectory: item.isDirectory, size: item.size)
+            guard let canonical = connection.canonicalPath(from: itemPath) else { return nil }
+            let name = item.name.isEmpty ? (itemPath as NSString).lastPathComponent : item.name
+            return NASEntry(path: canonical, name: name, isDirectory: item.isDirectory, size: item.size)
         }
     }
 
     static func download(_ connection: FeiniuConnection, entry: NASEntry) async throws -> URL {
-        var urlRequest = try makeRequest(connection, method: "GET", path: entry.path)
+        var urlRequest = try makeRequest(connection, method: "GET", path: connection.webdavPath(for: entry.path))
         let session = makeSession()
         let (tempURL, response) = try await session.download(for: urlRequest)
         guard let http = response as? HTTPURLResponse else { throw FeiniuError.nonHTTP }
@@ -713,20 +743,19 @@ private enum FeiniuWebDAV {
         guard !connection.webdavHost.isEmpty else { return nil }
         let candidates = streamCandidatePaths(connection, path: path)
         guard !candidates.isEmpty else { return nil }
-        let key = connection.id
         // 上次命中的候选优先（局域网/WAN 都稳），miss 再全量探测
-        if let cached = streamStyleCache.get(key), candidates.indices.contains(cached),
+        if let cached = streamStyleCache.get(connection), candidates.indices.contains(cached),
            let hit = await probeSingleStream(connection, path: candidates[cached]) {
             return hit
         }
         guard let (index, result) = await firstWorkingStream(connection, candidates: candidates) else {
             return nil
         }
-        streamStyleCache.set(key, index)
+        streamStyleCache.set(connection, index)
         return result
     }
 
-    /// 候选路径：配置根 + 原路径 / 配置根 + 共享名 + 原路径 / 共享名 + 原路径 / 原路径
+    /// 候选路径：优先用共享根映射得到的精确路径，其余历史变体作为兜底。
     private static func streamCandidatePaths(_ connection: FeiniuConnection, path: String) -> [String] {
         let rel = path.hasPrefix("/") ? path : "/" + path
         let rootRaw = connection.webdavRootPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -734,6 +763,7 @@ private enum FeiniuWebDAV {
         let share = connection.share.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         var list: [String] = []
         func add(_ value: String) { if !list.contains(value) { list.append(value) } }
+        add(connection.webdavPath(for: rel))
         add(root + rel)
         if !share.isEmpty {
             add(root + "/" + share + rel)
@@ -792,7 +822,7 @@ private enum FeiniuWebDAV {
 
     /// WebDAV DELETE：删文件；删目录时带 Depth: infinity，服务端递归删除
     static func remove(_ connection: FeiniuConnection, path: String, isDirectory: Bool) async throws {
-        var urlRequest = try makeRequest(connection, method: "DELETE", path: path)
+        var urlRequest = try makeRequest(connection, method: "DELETE", path: connection.webdavPath(for: path))
         if isDirectory { urlRequest.setValue("infinity", forHTTPHeaderField: "Depth") }
         let session = makeSession()
         let (_, response) = try await session.data(for: urlRequest)
@@ -851,7 +881,12 @@ private enum FeiniuWebDAV {
     private static func makeSession() -> URLSession { session }
 
     private static func normalized(_ path: String) -> String {
-        var value = path.removingPercentEncoding ?? path
+        var value = path
+        // 部分 WebDAV 服务端返回绝对 URL 作为 href，先剥掉 scheme/host 再做前缀映射
+        if let url = URL(string: value), url.scheme != nil, url.host != nil {
+            value = url.path
+        }
+        value = value.removingPercentEncoding ?? value
         while value.count > 1, value.hasSuffix("/") { value.removeLast() }
         return value
     }
@@ -1066,9 +1101,8 @@ enum FeiniuNASService {
         }
     }
 
-    static func initialPath(_ connection: FeiniuConnection) -> String {
-        cached(connection) == .smb ? "/" : connection.webdavRootPath
-    }
+    /// 两条链路统一从「共享根」开始；WebDAV 前缀由 FeiniuWebDAV 内部映射。
+    static func initialPath(_ connection: FeiniuConnection) -> String { "/" }
 }
 
 /// 解析 WebDAV multistatus：response / href / displayname / collection / getcontentlength。
@@ -1391,13 +1425,16 @@ struct FeiniuConnectionFormView: View {
                     }
                     TextField("端口", text: $webdavPort)
                         .keyboardType(.numberPad)
-                    TextField("初始路径（默认 /）", text: $webdavRootPath)
+                    TextField("WebDAV 共享根路径（默认 /）", text: $webdavRootPath)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                    Text("映射示例：SMB /电影 → WebDAV \(draft.webdavPath(for: "/电影"))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } header: {
                     Text("外网 WebDAV 地址")
                 } footer: {
-                    Text("填外网可访问的域名；需在飞牛「文件服务 → WebDAV」启用，并配置端口转发或反代。")
+                    Text("填外网可访问的域名；需在飞牛「文件服务 → WebDAV」启用，并配置端口转发或反代。「共享根路径」是 WebDAV 上对应 SMB 共享根的那一层，例如 SMB 的 /电影 在 WebDAV 里是 /nas/电影，就填 /nas。")
                 }
 
                 Section("账号") {
@@ -1439,7 +1476,7 @@ struct FeiniuConnectionFormView: View {
                 } header: {
                     Text("分类目录（可选）")
                 } footer: {
-                    Text("漫画 / 整理 / 短剧 / 电影 在 NAS 上的目录（从共享根算起）。留空即用默认的 /漫画、/整理、/短剧、/电影；也可以点文件夹图标直接浏览挑选。")
+                    Text("漫画 / 整理 / 短剧 / 电影 在 NAS 上的目录（从 SMB 共享根算起；WebDAV 会自动映射，不用另填）。留空即用默认的 /漫画、/整理、/短剧、/电影；也可以点文件夹图标直接浏览挑选。")
                 }
 
                 Section {
@@ -1524,6 +1561,8 @@ struct FeiniuConnectionFormView: View {
 
 /// 用当前草稿连接直接列 NAS 目录，点选一个真实存在的文件夹，
 /// 避免手填路径时把 /媒体/电影 写成 /media/电影 之类导致 STATUS_OBJECT_PATH_NOT_FOUND。
+/// 服务层已把 WebDAV 路径映射回共享根相对路径，所以无论当前走 SMB 还是 WebDAV，
+/// 选出来的 currentPath 都是同一套语义，换网络后不会失效。
 private struct NASDirectoryPicker: View {
     let connection: FeiniuConnection
     let onSelect: (String) -> Void
