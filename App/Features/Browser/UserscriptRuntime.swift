@@ -29,6 +29,10 @@ final class LNUserscriptRuntime: NSObject, WKScriptMessageHandler {
     /// 导航开始前调用：清掉上一次的脚本，按本次 URL 重新装配。
     /// 必须在 `decidePolicyFor` 里（放行之前）调用，WKWebView 会在随后的加载中读取。
     func installScripts(for url: URL, in webView: WKWebView) {
+        // about:blank 是初始空文档，在上面注入会让脚本白白跑一次
+        // （脚本往往在这时就把「已初始化」标志置上，导致真实页面里被自己的防重逻辑挡掉）
+        if url.absoluteString == "about:blank" { return }
+
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
 
@@ -154,6 +158,51 @@ final class LNUserscriptRuntime: NSObject, WKScriptMessageHandler {
           version: '1.0',
           script: { name: \(name), version: \(version), namespace: \(namespace) }
         };
+
+        // ===== document.body 兜底 =====
+        // 不少脚本在 document-start 阶段就直接建 UI（document.body.appendChild(...)），
+        // 但这一刻解析器还没创建 <body>，body 为 null，脚本抛
+        // "null is not an object (evaluating 'document.body.appendChild')"，
+        // 而它通常已经把「已初始化」标志置为 true，后续注入全被自己的防重逻辑挡掉，UI 永远出不来。
+        //
+        // 这里在 body 为 null 期间把 document.body 指向 documentElement：
+        // 脚本创建的浮层会挂在 <html> 下，position:fixed 定位照常生效；
+        // 真实 body 一出现就自动撤掉劫持，之后一切走原生行为。
+        try {
+          if (!document.body && document.documentElement) {
+            var __lnDocEl = document.documentElement;
+            var __lnBodyDesc = Object.getOwnPropertyDescriptor(Document.prototype, 'body');
+            if (!__lnBodyDesc && typeof HTMLDocument !== 'undefined') {
+              __lnBodyDesc = Object.getOwnPropertyDescriptor(HTMLDocument.prototype, 'body');
+            }
+            var __lnRealBody = function () {
+              try {
+                if (__lnBodyDesc && __lnBodyDesc.get) { return __lnBodyDesc.get.call(document); }
+                return document.querySelector('body');
+              } catch (e) { return null; }
+            };
+            var __lnBodyHijacked = true;
+            Object.defineProperty(document, 'body', {
+              configurable: true,
+              get: function () {
+                var real = __lnRealBody();
+                if (real) {
+                  if (__lnBodyHijacked) {
+                    __lnBodyHijacked = false;
+                    try { delete document.body; } catch (e) {}
+                  }
+                  return real;
+                }
+                return __lnDocEl;
+              },
+              set: function () {
+                // 页面自己给 body 赋值时立刻还原，交回原生行为
+                try { delete document.body; } catch (e) {}
+              }
+            });
+            __lnPost({ op: 'log', script: __lnId, message: '[运行时] document-start 阶段 body 尚未创建，已临时代理 document.body' });
+          }
+        } catch (e) {}
 
         // ===== 控制台桥接 =====
         // 脚本自己的 console.log 会被收进 App 的「运行日志」。油猴脚本通常把关键诊断
