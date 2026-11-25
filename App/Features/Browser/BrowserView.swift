@@ -170,10 +170,22 @@ struct LNBrowserView: View {
     @StateObject private var model = LNBrowserModel()
     @ObservedObject private var favorites = LNBrowserFavorites.shared
     @State private var addressText = ""
-    @State private var showsShare = false
-    @State private var favoriteDraft: LNBrowserFavorite?
+    @State private var activeSheet: BrowserSheet?
     @State private var favoriteEditMode = false
     @FocusState private var addressFocused: Bool
+
+    /// 同一层级只能挂一个 .sheet，否则后一个会覆盖前一个，所以用 enum 收敛
+    private enum BrowserSheet: Identifiable {
+        case share(URL)
+        case favorite(LNBrowserFavorite)
+
+        var id: String {
+            switch self {
+            case .share(let url): return "share:\(url.absoluteString)"
+            case .favorite(let favorite): return "favorite:\(favorite.id.uuidString)"
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -223,14 +235,14 @@ struct LNBrowserView: View {
             guard !addressFocused else { return }
             addressText = newValue
         }
-        .sheet(isPresented: $showsShare) {
-            if let url = URL(string: model.currentURLString), !model.currentURLString.isEmpty {
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .share(let url):
                 LNShareSheet(items: [url])
-            }
-        }
-        .sheet(item: $favoriteDraft) { draft in
-            LNBrowserFavoriteEditor(draft: draft) { saved in
-                favorites.update(saved)
+            case .favorite(let draft):
+                LNBrowserFavoriteEditor(draft: draft) { saved in
+                    favorites.update(saved)
+                }
             }
         }
         .accessibilityIdentifier("ln.browser.root")
@@ -313,7 +325,9 @@ struct LNBrowserView: View {
             }
             barButton(symbol: "square.and.arrow.up", label: "分享当前页面",
                       enabled: !model.currentURLString.isEmpty) {
-                showsShare = true
+                if let url = URL(string: model.currentURLString), !model.currentURLString.isEmpty {
+                    activeSheet = .share(url)
+                }
             }
         }
         .frame(height: 48)
@@ -414,7 +428,7 @@ struct LNBrowserView: View {
         ZStack(alignment: .topTrailing) {
             Button {
                 if favoriteEditMode {
-                    favoriteDraft = item
+                    activeSheet = .favorite(item)
                 } else {
                     open(item)
                 }
@@ -440,7 +454,7 @@ struct LNBrowserView: View {
             .buttonStyle(.plain)
             .contextMenu {
                 Button {
-                    favoriteDraft = item
+                    activeSheet = .favorite(item)
                 } label: {
                     Label("编辑", systemImage: "pencil")
                 }
@@ -470,7 +484,7 @@ struct LNBrowserView: View {
 
     private var addFavoriteTile: some View {
         Button {
-            favoriteDraft = LNBrowserFavorite(title: "", urlString: "")
+            activeSheet = .favorite(LNBrowserFavorite(title: "", urlString: ""))
         } label: {
             VStack(spacing: 7) {
                 ZStack {
