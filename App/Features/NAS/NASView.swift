@@ -817,7 +817,7 @@ private enum FeiniuWebDAV {
         return http.statusCode == 200 || http.statusCode == 206
     }
 
-    /// 探测命中样式缓存（并发安全）：connection.id → 候选索引
+    /// 探测命中样式缓存（并发安全）：整条连接配置 → 候选索引
     private static let streamStyleCache = StreamStyleCache()
 
     /// WebDAV DELETE：删文件；删目录时带 Depth: infinity，服务端递归删除

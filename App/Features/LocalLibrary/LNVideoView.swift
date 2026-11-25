@@ -369,6 +369,60 @@ final class LNPlayerView: IOSVideoPlayerView {
         onRequestFullscreen?()
     }
 
+    // MARK: - 播放前占位图
+
+    /// 给 KSPlayer 的封面层放一张占位图，避免 video 还没开始解码时整块纯黑。
+    ///
+    /// 原理：IOSVideoPlayerView 自带 `maskImageView`（播放前显示封面、readyToPlay
+    /// 时自动淡出）。我们走 `set(url:options:)` 没有传 cover，那层就是透明的，
+    /// 底下的 Metal 视图在首帧解码前是黑的 —— 用户看到的就是「未播放前黑屏」。
+    /// 这里画一张深色渐变 + 播放图标的占位图塞进去，播放开始时 KSPlayer 自己淡出，
+    /// 不用我们监听状态手工管显隐，也不影响控制条。
+    ///
+    /// 无文件名参数：图片缓存稳定（不随每集变化重建），文件名本来就在画面下方显示。
+    func installPlaceholder() {
+        let image = Self.makePlaceholderImage()
+        maskImageView.contentMode = .scaleAspectFill
+        maskImageView.clipsToBounds = true
+        maskImageView.image = image
+        maskImageView.alpha = 1
+    }
+
+    /// 纯代码绘制占位图，不引入资源文件（避免改 pbxproj）。
+    /// UIKit 绘图必须在主 actors 上，调用方本来就是 UIView 的 @MainActor 上下文。
+    @MainActor static func makePlaceholderImage() -> UIImage {
+        let size = CGSize(width: 640, height: 360)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2 // 高分屏清晰
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            // 深色渐变底：比纯黑柔和，且暗色/浅色模式下都一致（播放器场景）
+            let colors = [
+                UIColor(red: 0.11, green: 0.13, blue: 0.16, alpha: 1).cgColor,
+                UIColor(red: 0.20, green: 0.23, blue: 0.27, alpha: 1).cgColor,
+            ] as CFArray
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                         colors: colors, locations: [0, 1]) {
+                ctx.cgContext.drawLinearGradient(
+                    gradient,
+                    start: CGPoint(x: 0, y: 0),
+                    end: CGPoint(x: size.width, y: size.height),
+                    options: []
+                )
+            }
+            // 中央播放图标：语义化 SF Symbol，白 65% 透明度
+            let config = UIImage.SymbolConfiguration(pointSize: 56, weight: .thin)
+            if let symbol = UIImage(systemName: "play.circle", withConfiguration: config) {
+                let icon = symbol.withTintColor(.white.withAlphaComponent(0.65),
+                                                renderingMode: .alwaysOriginal)
+                let iconSide: CGFloat = 64
+                icon.draw(in: CGRect(x: (size.width - iconSide) / 2,
+                                     y: (size.height - iconSide) / 2,
+                                     width: iconSide, height: iconSide))
+            }
+        }
+    }
+
     // MARK: - 外挂字幕（NAS 同目录）
 
     /// 挂载已下载到本地的字幕文件。
@@ -493,6 +547,7 @@ struct LNKSPlayerHost: UIViewRepresentable {
         let playerView = LNPlayerView()
         playerView.configure()
         playerView.set(url: url, options: options)
+        playerView.installPlaceholder()
         playerView.delegate = box
         playerView.playTimeDidChange = { _, total in
             guard total > 0, total.isFinite else { return }
@@ -510,6 +565,7 @@ struct LNKSPlayerHost: UIViewRepresentable {
         // 流式失败回退下载、换章等场景：URL 变了就重设（KSPlayer 内部会重建 layer）
         if playerView.playerLayer?.url != url {
             playerView.set(url: url, options: options)
+            playerView.installPlaceholder()
         }
         // 字幕晚到（下载完成）时补挂；attachSubtitles 内部按 subtitleID 去重，幂等
         playerView.attachSubtitles(box.subtitleURLs)
@@ -558,6 +614,7 @@ struct LNKSFullscreenHost: UIViewRepresentable {
         playerView.configure()
         playerView.autoFullscreenOnPlay = false
         playerView.set(url: url, options: options)
+        playerView.installPlaceholder()
         // 全屏实例自己就是 layer 的 delegate（状态回调直接驱动自己的控制条）
         playerView.delegate = box
         playerView.playTimeDidChange = { _, total in
