@@ -19,7 +19,11 @@ import SwiftUI
 struct LNVideoView: View {
     let item: LNMediaItem
     let source: any LNLibrarySource
-    /// 全屏关闭回调：阅读页靠它把滚动位置拉回视频处（章尾）
+    /// 画面高度：章内嵌 / 短剧用 240；传 nil 表示按 16:9 自适应铺满宽度
+    /// （电影整页播放需要更大的画面）
+    var playerHeight: CGFloat? = 240
+    /// 全屏关闭回调：阅读页靠它把滚动位置拉回视频处（章尾）。
+    /// 必须保持为最后一个参数——阅读页是用尾随闭包传的。
     var onFullscreenEnd: (() -> Void)? = nil
 
     @State private var box = LNKSPlayerBox()
@@ -60,7 +64,7 @@ struct LNVideoView: View {
                 LNKSPlayerHost(box: box, url: url, options: options,
                                autoFullscreenOnPlay: shouldAutoFullscreen,
                                onRequestFullscreen: requestFullscreen)
-                    .frame(height: 240)
+                    .modifier(LNPlayerSizing(height: playerHeight))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             } else if !failed {
                 ZStack {
@@ -68,7 +72,7 @@ struct LNVideoView: View {
                         .fill(Color.black.opacity(0.06))
                     ProgressView()
                 }
-                .frame(height: 240)
+                .modifier(LNPlayerSizing(height: playerHeight))
             }
             HStack(spacing: 8) {
                 Text(item.fileName)
@@ -199,6 +203,24 @@ struct LNVideoView: View {
         let total = Int(seconds.rounded())
         let h = total / 3600, m = total / 60 % 60, s = total % 60
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    }
+}
+
+/// 播放器画面尺寸：
+/// - 给定高度 → 固定高度（章内嵌 / 短剧，保持 240pt 小卡片）
+/// - nil → 按 16:9 自适应铺满可用宽度（电影整页播放）
+private struct LNPlayerSizing: ViewModifier {
+    let height: CGFloat?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let height {
+            content.frame(height: height)
+        } else {
+            content
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+        }
     }
 }
 

@@ -1,17 +1,17 @@
 import SwiftUI
 
-/// 本地 tab 的根视图：漫画 / 整理 / 短剧三个入口。
-/// NAS tab 的 CategoryView 复用同一个组件，只换 source。
+/// 分类入口视图：漫画 / 整理 / 短剧（本地），NAS 再加一个「电影」。
+/// 本地 tab 与 NAS tab 的 CategoryView 复用同一个组件，只换 source 与 categories。
 struct LNCategoryView: View {
     let source: any LNLibrarySource
     let title: String
     /// 说明文字：不传则不显示（本地 / 飞牛 NAS 分类页已去掉，
     /// 让标题位置与 NAS tab 完全一致）
     var subtitle: String? = nil
+    /// 展示哪些分类。本地只有前三类，NAS 用 allCases（含电影）。
+    var categories: [LNCategory] = LNCategory.localCases
     /// NAS 首屏不预统计（三类各一次远端探测会拖慢进入），进入分类时再加载
     var showsCounts: Bool = true
-    /// 页面底部附加内容（NAS 用来放「浏览全部文件」入口）
-    var extraContent: AnyView? = nil
 
     @State private var counts: [LNCategory: Int] = [:]
     @State private var isLoading = false
@@ -28,9 +28,9 @@ struct LNCategoryView: View {
                 }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 14),
                                     GridItem(.flexible(), spacing: 14)], spacing: 14) {
-                    ForEach(LNCategory.allCases) { cat in
+                    ForEach(categories) { cat in
                         NavigationLink {
-                            LNBookListView(source: source, category: cat)
+                            destination(for: cat)
                         } label: {
                             card(cat)
                         }
@@ -39,11 +39,6 @@ struct LNCategoryView: View {
                     }
                 }
                 .padding(.horizontal, 24)
-                if let extraContent {
-                    extraContent
-                        .padding(.horizontal, 24)
-                        .padding(.top, 14)
-                }
             }
             .padding(.bottom, 30)
         }
@@ -54,6 +49,16 @@ struct LNCategoryView: View {
         .task { if showsCounts { await loadCounts() } }
     }
 
+    /// 电影是平铺视频列表（点开即播），其余三类是「书 → 章」结构
+    @ViewBuilder
+    private func destination(for category: LNCategory) -> some View {
+        if category == .movie {
+            LNMovieListView(source: source)
+        } else {
+            LNBookListView(source: source, category: category)
+        }
+    }
+
     private func card(_ cat: LNCategory) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Image(systemName: cat.symbol)
@@ -62,7 +67,7 @@ struct LNCategoryView: View {
             Text(cat.label)
                 .font(.headline)
                 .foregroundStyle(ReadingTheme.ink)
-            Text(showsCounts ? (counts[cat].map { "\($0) 本" } ?? "—") : "点按进入")
+            Text(showsCounts ? (counts[cat].map { "\($0) \(cat == .movie ? "部" : "本")" } ?? "—") : "点按进入")
                 .font(.caption)
                 .foregroundStyle(ReadingTheme.ink.opacity(0.5))
             Spacer(minLength: 0)
@@ -81,9 +86,14 @@ struct LNCategoryView: View {
         isLoading = true
         defer { isLoading = false }
         var next: [LNCategory: Int] = [:]
-        for cat in LNCategory.allCases {
+        for cat in categories {
             let path = source.categoryRoot(cat)
             guard let nodes = try? await source.list(at: path) else { continue }
+            if cat == .movie {
+                // 电影目录下直接是视频文件，数量即条目数
+                next[cat] = nodes.filter { LNScanner.isVideo($0) }.count
+                continue
+            }
             let books = try? await LNScanner.books(in: nodes, category: cat,
                                                     loadChildren: { node in
                                                         try await source.list(at: node.path)
@@ -91,6 +101,119 @@ struct LNCategoryView: View {
             next[cat] = books?.count ?? 0
         }
         counts = next
+    }
+}
+
+/// 电影列表：分类目录下直接是视频文件，平铺列出，点开即播。
+/// 与其余三类不同——电影没有「书 → 章」结构，所以不走 LNScanner/LNBookListView。
+struct LNMovieListView: View {
+    let source: any LNLibrarySource
+
+    @State private var movies: [LNMediaItem] = []
+    @State private var errorMessage: String?
+    @State private var loading = false
+
+    var body: some View {
+        Group {
+            if loading && movies.isEmpty {
+                // 骨架占位而不是全屏 spinner
+                VStack(spacing: 10) {
+                    ForEach(0 ..< 6, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(ReadingTheme.groupedCanvas)
+                            .frame(height: 56)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .redacted(reason: .placeholder)
+            } else if let errorMessage, movies.isEmpty {
+                ReadingUnavailableView("无法读取电影目录",
+                                       systemImage: "film",
+                                       description: Text(errorMessage))
+            } else if movies.isEmpty {
+                ReadingUnavailableView("还没有电影",
+                                       systemImage: "film",
+                                       description: Text(LNCategory.movie.hint))
+            } else {
+                List(movies) { movie in
+                    NavigationLink {
+                        LNMoviePlayerView(item: movie, source: source)
+                    } label: {
+                        movieRow(movie)
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle(LNCategory.movie.label)
+        .navigationBarTitleDisplayMode(.inline)
+        .lnShowsTabBar()
+        .task { await load() }
+        .refreshable { await load() }
+        .accessibilityIdentifier("ln.movie.list")
+    }
+
+    private func movieRow(_ movie: LNMediaItem) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "play.rectangle.fill")
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(ReadingTheme.accent)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(movie.fileName)
+                    .font(.body)
+                    .foregroundStyle(ReadingTheme.ink)
+                    .lineLimit(2)
+                Text("点击播放")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        // 整行可点（含右侧空白），与章节/书籍列表保持一致
+        .contentShape(Rectangle())
+        .padding(.vertical, 2)
+    }
+
+    private func load() async {
+        loading = true
+        errorMessage = nil
+        defer { loading = false }
+        do {
+            let nodes = try await source.list(at: source.categoryRoot(.movie))
+            movies = nodes
+                .filter { LNScanner.isVideo($0) }
+                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+                .map { LNMediaItem(path: $0.path, fileName: $0.name, kind: .video) }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+/// 电影播放页：全宽 16:9 播放器，点播放按钮即自动全屏（LNVideoView 内置行为）。
+struct LNMoviePlayerView: View {
+    let item: LNMediaItem
+    let source: any LNLibrarySource
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                // playerHeight 传 nil：按 16:9 自适应宽度，电影画面比章内小卡片大得多
+                LNVideoView(item: item, source: source, playerHeight: nil)
+                Text("建议横屏或点右上角全屏观看；缓存过的片段下次打开会更快。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+        }
+        .background(ReadingTheme.canvas.ignoresSafeArea())
+        .navigationTitle(item.fileName)
+        .navigationBarTitleDisplayMode(.inline)
+        .lnShowsTabBar()
     }
 }
 

@@ -8,14 +8,20 @@ enum LNCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
     case comic
     case organized
     case shortDrama
+    case movie
 
     var id: String { rawValue }
+
+    /// 本地 tab 的分类入口。电影是 NAS 专属（本地放电影没有意义），
+    /// 所以本地只用前三类，飞牛 NAS 分类页用 allCases。
+    static let localCases: [LNCategory] = [.comic, .organized, .shortDrama]
 
     var label: String {
         switch self {
         case .comic: return "漫画"
         case .organized: return "整理"
         case .shortDrama: return "短剧"
+        case .movie: return "电影"
         }
     }
 
@@ -26,6 +32,7 @@ enum LNCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .comic: return "photo.on.rectangle.angled"
         case .organized: return "folder"
         case .shortDrama: return "play.rectangle.on.rectangle"
+        case .movie: return "film"
         }
     }
 
@@ -34,6 +41,7 @@ enum LNCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .comic: return "每部一个文件夹，按「部 → 话」分层，图片或 PDF"
         case .organized: return "作者文件夹 → 章节文件夹 → 正文 + 插图 + 音视频"
         case .shortDrama: return "剧名文件夹：剧照包 + 视频包"
+        case .movie: return "目录下直接放视频文件，点击即播放"
         }
     }
 
@@ -42,6 +50,7 @@ enum LNCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .comic: return "漫画/漫画名/第1部/第1话/001.jpg\n漫画/漫画名/第5话.pdf"
         case .organized: return "整理/作者名/第01章/正文.txt + 1.jpg + [图1] 标记"
         case .shortDrama: return "短剧/剧名/剧照/001.jpg\n短剧/剧名/视频/第01集.mp4"
+        case .movie: return "电影/片名.mp4\n电影/片名.mkv"
         }
     }
 }

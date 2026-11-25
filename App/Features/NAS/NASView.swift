@@ -43,9 +43,22 @@ struct FeiniuConnection: Codable, Identifiable, Hashable, Sendable {
     var webdavRootPath: String = "/"
     var webdavUsername: String = ""       // 留空复用主账号
     var webdavPassword: String = ""
+    /// 各分类在 NAS 上的目录路径（key 为 LNCategory.rawValue）。
+    /// 留空 / 缺失表示用默认：初始路径下的同名文件夹（漫画/整理/短剧/电影）。
+    /// 用 Optional 是为了让旧版本保存的连接仍能解码——Swift 合成的 Decodable
+    /// 遇到缺失的非可选 key 会直接抛错，那样整份连接列表都会被丢回旧版迁移逻辑。
+    var categoryPaths: [String: String]? = nil
     var createdAt: Date = Date()
 
     init() {}
+
+    /// 某分类的自定义目录（已规范化成以 / 开头的绝对路径）；nil 表示用默认同名文件夹。
+    func categoryPath(_ category: LNCategory) -> String? {
+        guard let raw = categoryPaths?[category.rawValue] else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
+    }
 
     var smbAddress: String {
         guard !smbHost.isEmpty else { return "未配置地址" }
@@ -999,7 +1012,7 @@ enum FeiniuNASService {
             entries = try await fetch(connection, proto: proto, path: path)
         }
         // 统一按名称自然排序（数字序号 2 排在 10 前），目录在前。
-        // 放在数据源层：FeiniuBrowserView、LNNASSource 三类书库等所有调用点都受益。
+        // 放在数据源层：LNNASSource 四类书库等所有调用点都受益。
         let sorted = entries.sorted { a, b in
             if a.isDirectory != b.isDirectory { return a.isDirectory }
             return a.name.localizedStandardCompare(b.name) == .orderedAscending
@@ -1184,7 +1197,7 @@ struct NASView: View {
             Text("连接你的飞牛 NAS")
                 .font(.headline)
                 .foregroundStyle(ReadingTheme.ink.opacity(0.75))
-            Text("填内网 IP 与外网域名，App 自动识别网络：内网走 SMB、外网走 WebDAV，直接导入书架阅读。")
+            Text("填内网 IP 与外网域名，App 自动识别网络：内网走 SMB、外网走 WebDAV，直接在 NAS 上阅读与播放。")
                 .font(.subheadline)
                 .foregroundStyle(ReadingTheme.ink.opacity(0.5))
                 .multilineTextAlignment(.center)
@@ -1272,6 +1285,8 @@ struct FeiniuConnectionFormView: View {
     @State private var webdavRootPath: String
     @State private var webdavUsername: String
     @State private var webdavPassword: String
+    /// 各分类的 NAS 目录（key = LNCategory.rawValue），留空用默认同名文件夹
+    @State private var categoryPaths: [String: String]
     @State private var testing = false
     @State private var testResult: String?
     @State private var errorMessage: String?
@@ -1291,6 +1306,7 @@ struct FeiniuConnectionFormView: View {
         _webdavRootPath = State(initialValue: connection?.webdavRootPath ?? "/")
         _webdavUsername = State(initialValue: connection?.webdavUsername ?? "")
         _webdavPassword = State(initialValue: connection?.webdavPassword ?? "")
+        _categoryPaths = State(initialValue: connection?.categoryPaths ?? [:])
     }
 
     private var draft: FeiniuConnection {
@@ -1308,6 +1324,14 @@ struct FeiniuConnectionFormView: View {
         value.webdavRootPath = path.isEmpty ? "/" : (path.hasPrefix("/") ? path : "/" + path)
         value.webdavUsername = webdavUsername.trimmingCharacters(in: .whitespacesAndNewlines)
         value.webdavPassword = webdavPassword
+        // 分类目录：只保存非空项；全空则存 nil，回到「默认同名文件夹」行为
+        var paths: [String: String] = [:]
+        for (key, raw) in categoryPaths {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            paths[key] = trimmed.hasPrefix("/") ? trimmed : "/" + trimmed
+        }
+        value.categoryPaths = paths.isEmpty ? nil : paths
         return value
     }
 
@@ -1389,6 +1413,21 @@ struct FeiniuConnectionFormView: View {
                 }
 
                 Section {
+                    ForEach(LNCategory.allCases) { category in
+                        TextField(defaultPathPlaceholder(category),
+                                  text: pathBinding(category))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                            .accessibilityIdentifier("nas.form.categoryPath.\(category.rawValue)")
+                    }
+                } header: {
+                    Text("分类目录（可选）")
+                } footer: {
+                    Text("漫画 / 整理 / 短剧 / 电影 在 NAS 上的目录（从共享根算起）。留空即用默认的 /漫画、/整理、/短剧、/电影；也可以填 /media/comics 这类绝对路径。")
+                }
+
+                Section {
                     Button {
                         Task { await testConnection() }
                     } label: {
@@ -1430,6 +1469,20 @@ struct FeiniuConnectionFormView: View {
         }
     }
 
+    /// 分类目录输入框绑定：字典里没有该 key 时显示空串，输入即写入
+    private func pathBinding(_ category: LNCategory) -> Binding<String> {
+        Binding(
+            get: { categoryPaths[category.rawValue] ?? "" },
+            set: { categoryPaths[category.rawValue] = $0 }
+        )
+    }
+
+    /// 占位提示：留空时实际会用的默认目录，让用户一眼看到现在的约定。
+    /// 默认值就是共享根下的同名文件夹（与初始路径无关——分类路径始终从共享根算起）。
+    private func defaultPathPlaceholder(_ category: LNCategory) -> String {
+        "\(category.label)目录（留空 = /\(category.folderName)）"
+    }
+
     private func testConnection() async {
         testing = true
         testResult = nil
@@ -1442,244 +1495,6 @@ struct FeiniuConnectionFormView: View {
                 : "外网 WebDAV 可用，当前设备走外网链路"
         } catch {
             errorMessage = error.localizedDescription
-        }
-    }
-}
-
-// MARK: - 目录浏览与导入
-
-struct FeiniuBrowserView: View {
-    @EnvironmentObject private var library: BookLibraryModel
-    let connection: FeiniuConnection
-
-    @State private var path: String
-    @State private var entries: [NASEntry] = []
-    @State private var loading = false
-    @State private var errorMessage: String?
-    @State private var downloading: String?
-    @State private var toast: String?
-    @State private var linkLabel: String?
-    @State private var isRoot = false
-    @State private var editMode: EditMode = .inactive
-    @State private var selected: Set<NASEntry.ID> = []
-    @State private var confirmDelete = false
-
-    init(connection: FeiniuConnection, path: String? = nil) {
-        self.connection = connection
-        let root = path == nil
-        _isRoot = State(initialValue: root)
-        _path = State(initialValue: path ?? FeiniuNASService.initialPath(connection))
-    }
-
-    var body: some View {
-        Group {
-            if loading && entries.isEmpty {
-                VStack(spacing: 12) {
-                    ProgressView()
-                    Text("正在读取目录…").font(.subheadline).foregroundStyle(.secondary)
-                }
-            } else if let errorMessage, entries.isEmpty {
-                ReadingUnavailableView("无法连接飞牛 NAS", systemImage: "wifi.exclamationmark", description: Text(errorMessage))
-            } else {
-                List(selection: $selected) {
-                    if !entries.isEmpty {
-                        Section {
-                            ForEach(entries, id: \.path) { entry in
-                                entryListRow(entry)
-                            }
-                        } header: {
-                            HStack {
-                                Text("\(entries.count) 项 · 点击文件导入书架")
-                                Spacer()
-                                if let linkLabel { Text(linkLabel).font(.caption2) }
-                            }
-                        }
-                    }
-                    if let errorMessage {
-                        Section { Text(errorMessage).font(.caption).foregroundStyle(.orange) }
-                    }
-                }
-                .listStyle(.insetGrouped)
-                .environment(\.editMode, $editMode)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        if editMode == .active {
-                            Button { cancelSelection() } label: {
-                                Text("取消").accessibilityLabel("取消多选")
-                            }
-                        }
-                    }
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        if editMode == .active {
-                            Button(role: .destructive) { confirmDelete = true } label: {
-                                Image(systemName: "trash").accessibilityLabel("删除选中")
-                            }
-                            .disabled(selected.isEmpty)
-                        } else {
-                            Button { editMode = .active } label: {
-                                Text("选择").accessibilityLabel("进入多选模式")
-                            }
-                        }
-                    }
-                }
-                .alert("删除选中项？", isPresented: $confirmDelete) {
-                    Button("取消", role: .cancel) {}
-                    Button("删除", role: .destructive) { Task { await deleteSelected() } }
-                } message: {
-                    Text("将删除 NAS 上选中的文件/目录，不可恢复。")
-                }
-            }
-        }
-        .navigationTitle(isRoot ? connection.name : (path as NSString).lastPathComponent)
-        .navigationBarTitleDisplayMode(.inline)
-        .task(id: path) { await load(forceRefresh: false) }
-        .refreshable {
-            FeiniuNASService.invalidateListCache()
-            await load(forceRefresh: true)
-        }
-        .overlay(alignment: .bottom) {
-            if let toast {
-                Text(toast)
-                    .font(.subheadline)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(ReadingTheme.emphasisSurface, in: Capsule())
-                    .foregroundStyle(ReadingTheme.onAccent)
-                    .padding(.bottom, 24)
-                    .transition(.opacity)
-            }
-        }
-        .animation(.easeOut, value: toast)
-        .accessibilityIdentifier("nas.browser.list")
-    }
-
-    private func entryRow(_ entry: NASEntry, systemImage: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 20))
-                .foregroundStyle(entry.isDirectory ? ReadingTheme.coral : ReadingTheme.accent)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(entry.name).font(.body).foregroundStyle(ReadingTheme.ink).lineLimit(1)
-                if !entry.isDirectory {
-                    Text(entry.size > 0 ? formattedSize(entry.size) : "文件")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    private func formattedSize(_ bytes: Int64) -> String {
-        if bytes < 1024 { return "\(bytes) B" }
-        if bytes < 1024 * 1024 { return String(format: "%.1f KB", Double(bytes) / 1024) }
-        return String(format: "%.1f MB", Double(bytes) / 1_048_576)
-    }
-
-    private func load(forceRefresh: Bool = false) async {
-        loading = true
-        errorMessage = nil
-        defer { loading = false }
-        do {
-            if forceRefresh {
-                // 手动下拉才强制重新探测链路
-                let proto = try await FeiniuNASService.probe(connection)
-                linkLabel = proto == .smb ? "内网 SMB" : "外网 WebDAV"
-            } else if let proto = FeiniuNASService.activeProtocol(connection) {
-                // 平时直接用上次成功的链路标签，不重复探测（list 内部会按需重探）
-                linkLabel = proto == .smb ? "内网 SMB" : "外网 WebDAV"
-            }
-            // 根目录按实测链路选初始路径：SMB 从 share 根 "/" 开始，WebDAV 用配置的初始路径。
-            // 关键：只用于本次取目录，不写回 @State path —— 写回会改变 .task(id: path) 的 id，
-            // 触发第二次 load，并让 navigationTitle 从连接名跳成路径末段，落在 push 动画里就是"过渡抖一下"。
-            let pathToLoad = isRoot ? FeiniuNASService.initialPath(connection) : path
-            // 按名称自然排序（数字章节 2/10 顺序正确），目录在前、文件在后
-            let listed = try await FeiniuNASService.list(connection, path: pathToLoad)
-            entries = listed.sorted { a, b in
-                if a.isDirectory != b.isDirectory { return a.isDirectory }
-                return a.name.localizedStandardCompare(b.name) == .orderedAscending
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    @ViewBuilder
-    private func entryListRow(_ entry: NASEntry) -> some View {
-        Group {
-            if entry.isDirectory {
-                NavigationLink {
-                    FeiniuBrowserView(connection: connection, path: entry.path)
-                } label: {
-                    entryRow(entry, systemImage: "folder")
-                }
-            } else {
-                Button {
-                    Task { await importEntry(entry) }
-                } label: {
-                    HStack {
-                        entryRow(entry, systemImage: "doc.text")
-                        if downloading == entry.path {
-                            ProgressView().padding(.leading, 6)
-                        }
-                    }
-                }
-                .disabled(downloading != nil)
-            }
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                Task { await deleteEntry(entry) }
-            } label: {
-                Label("删除", systemImage: "trash")
-            }
-        }
-    }
-
-    private func cancelSelection() {
-        selected.removeAll()
-        editMode = .inactive
-    }
-
-    private func deleteEntry(_ entry: NASEntry) async {
-        do {
-            try await FeiniuNASService.remove(connection, path: entry.path, isDirectory: entry.isDirectory)
-            entries.removeAll { $0.path == entry.path }
-            toast = "已删除 \(entry.name)"
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func deleteSelected() async {
-        let targets = entries.filter { selected.contains($0.path) }
-        var failed = 0
-        for entry in targets {
-            do {
-                try await FeiniuNASService.remove(connection, path: entry.path, isDirectory: entry.isDirectory)
-            } catch {
-                failed += 1
-            }
-        }
-        entries.removeAll { selected.contains($0.path) }
-        toast = failed == 0 ? "已删除 \(targets.count) 项" : "已删除 \(targets.count - failed) 项，失败 \(failed) 项"
-        selected.removeAll()
-        editMode = .inactive
-    }
-
-    private func importEntry(_ entry: NASEntry) async {
-        guard downloading == nil else { return }
-        downloading = entry.path
-        defer { downloading = nil }
-        do {
-            let localURL = try await FeiniuNASService.download(connection, entry: entry)
-            await library.importLocalFiles([localURL])
-            try? FileManager.default.removeItem(at: localURL.deletingLastPathComponent())
-            let message = library.errorMessage ?? "已导入《\(entry.name)》"
-            toast = message
-            library.clearError()
-        } catch {
-            toast = "导入失败：\(error.localizedDescription)"
         }
     }
 }

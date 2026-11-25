@@ -19,12 +19,13 @@ enum LNRoot {
         return LNLocalSource(rootURL: libraryURL)
     }
 
-    /// 首次启动建三个分类目录（不建"小说"）。已存在则不动用户文件。
+    /// 首次启动建本地三个分类目录（不建"小说"、也不建"电影"——电影是 NAS 专属）。
+    /// 已存在则不动用户文件。
     static func ensureFolders() {
         let fm = FileManager.default
         guard !fm.fileExists(atPath: libraryURL.path) else { return }
         try? fm.createDirectory(at: libraryURL, withIntermediateDirectories: true)
-        for cat in LNCategory.allCases {
+        for cat in LNCategory.localCases {
             let dir = libraryURL.appendingPathComponent(cat.folderName, isDirectory: true)
             if !fm.fileExists(atPath: dir.path) {
                 try? fm.createDirectory(at: dir, withIntermediateDirectories: true)

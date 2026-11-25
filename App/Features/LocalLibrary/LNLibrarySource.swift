@@ -92,6 +92,9 @@ struct LNNASSource: LNLibrarySource {
 
     /// 共享根 + 分类目录名，例如 rootPath="/" → "/漫画"
     func categoryRoot(_ category: LNCategory) -> String {
+        // 编辑页里单独配了该分类的目录就用它（可指向 NAS 上任意目录，
+        // 比如本地文件夹叫 comics 而默认约定是「漫画」）
+        if let custom = connection.categoryPath(category) { return custom }
         let root = rootPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         return root.isEmpty ? "/" + category.folderName : "/" + root + "/" + category.folderName
     }

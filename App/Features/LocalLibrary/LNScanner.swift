@@ -84,6 +84,10 @@ enum LNScanner {
             case .shortDrama:
                 chapters = try await dramaChapters(in: folder, nodes: children,
                                                    loadChildren: loadChildren)
+            case .movie:
+                // 电影不走「书 → 章」结构：分类目录下直接是视频文件，
+                // 由 LNMovieListView 平铺列出（见 LNCategoryView 的分支）。
+                chapters = []
             }
             guard !chapters.isEmpty else { return nil }
             return LNBook(path: folder.path, title: folder.name,
