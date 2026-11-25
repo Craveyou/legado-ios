@@ -254,16 +254,12 @@ struct LNUserscriptListView: View {
         Task { @MainActor in
             let fm = FileManager.default
             let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            var found: [URL] = []
-            if let enumerator = fm.enumerator(at: docs,
-                                              includingPropertiesForKeys: [.isRegularFileKey],
-                                              options: [.skipsHiddenFiles]) {
-                for case let fileURL as URL in enumerator {
-                    let ext = fileURL.pathExtension.lowercased()
-                    if ["js", "mjs", "txt", "text"].contains(ext) {
-                        found.append(fileURL)
-                    }
-                }
+            // 注意：DirectoryEnumerator 的 makeIterator 在 async 上下文不可用，这里用 allObjects 一次取回
+            let contents = fm.enumerator(at: docs,
+                                         includingPropertiesForKeys: [.isRegularFileKey],
+                                         options: [.skipsHiddenFiles])?.allObjects as? [URL] ?? []
+            let found = contents.filter {
+                ["js", "mjs", "txt", "text"].contains($0.pathExtension.lowercased())
             }
             guard !found.isEmpty else {
                 showToast("「小浣熊阅读」文件夹里没有 .js 文件\n用「文件」App 把脚本拖进去再试一次", duration: 6)
