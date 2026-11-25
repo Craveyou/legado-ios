@@ -107,6 +107,15 @@ struct LNVideoView: View {
             if let layer = box.view?.playerLayer, sync.time > 0 {
                 layer.seek(time: sync.time, autoPlay: sync.wasPlaying) { _ in }
             }
+            // 全屏里改过字幕选择的话，让内嵌实例跟着切（保持两边一致）
+            if let embedded = box.view {
+                if let id = sync.subtitleID {
+                    embedded.pendingSubtitleID = id
+                } else if embedded.srtControl.selectedSubtitleInfo != nil {
+                    // 全屏里选了「不显示字幕」：内嵌也要关掉
+                    embedded.srtControl.selectedSubtitleInfo = nil
+                }
+            }
             // 滚动位置拉回视频处（章尾），避免阅读页回到章首
             onFullscreenEnd?()
         }) {
@@ -127,6 +136,8 @@ struct LNVideoView: View {
         guard let layer = box.view?.playerLayer else { return }
         sync.time = layer.player.currentPlaybackTime
         sync.wasPlaying = layer.state.isPlaying
+        // 字幕选择也带过去（全屏是独立实例，不传的话用户在内嵌选的中文字幕会丢）
+        sync.subtitleID = box.view?.srtControl.selectedSubtitleInfo?.subtitleID
         layer.pause()
         showFullscreen = true
     }
@@ -165,6 +176,7 @@ struct LNVideoView: View {
             // 伪装成 AVPlayer 的 UA（LocalNovel 流式同款，已验证 NAS 可达）
             newOptions.userAgent = "AppleCoreMedia/1.0"
             setPlayer(url: remoteURL, options: newOptions)
+            Task { await loadSiblingSubtitles() }
             return
         }
         // 回退：本地文件 / SMB / 流式失败后的整文件下载
@@ -173,6 +185,47 @@ struct LNVideoView: View {
             return
         }
         setPlayer(url: localURL, options: KSOptions())
+        Task { await loadSiblingSubtitles() }
+    }
+
+    /// 静态字幕扩展名（与 KSPlayer 的 `isSubtitle` 对齐：ass / srt / ssa / vtt）
+    private static let subtitleExtensions: Set<String> = ["srt", "ass", "ssa", "vtt"]
+
+    /// 挂载同目录外挂字幕。
+    ///
+    /// KSPlayer 的 `DirectorySubtitleDataSouce` 只在 `fileURL.isFileURL` 时扫目录，
+    /// NAS 视频是 http 流式播放，字幕文件永远发现不了（内嵌字幕不受影响）。
+    /// 这里主动去视频同目录找同名文件（movie.srt / movie.zh-CN.ass / movie_chi.srt），
+    /// 下载到本地缓存后交给播放器。
+    private func loadSiblingSubtitles() async {
+        guard box.subtitleURLs.isEmpty else { return }
+        let dir = (item.path as NSString).deletingLastPathComponent
+        let videoBase = ((item.path as NSString).lastPathComponent as NSString).deletingPathExtension
+        guard !videoBase.isEmpty,
+              let nodes = try? await source.list(at: dir.isEmpty ? "/" : dir) else { return }
+        let matches = nodes.filter { node in
+            guard !node.isDirectory else { return false }
+            let ext = (node.name as NSString).pathExtension.lowercased()
+            guard Self.subtitleExtensions.contains(ext) else { return false }
+            let base = (node.name as NSString).deletingPathExtension
+            if base == videoBase { return true }
+            // movie.zh.srt / movie_chi.srt / movie-1.srt 也算同名，
+            // 但不能把 movie2.srt 算到 movie 头上（要求分隔符）
+            guard base.hasPrefix(videoBase),
+                  let next = base.dropFirst(videoBase.count).first else { return false }
+            return next == "." || next == "_" || next == "-" || next == " "
+        }
+        guard !matches.isEmpty else { return }
+        var locals: [URL] = []
+        for node in matches {
+            if let local = try? await source.localURL(for: node.path) {
+                locals.append(local)
+            }
+        }
+        guard !locals.isEmpty else { return }
+        box.subtitleURLs = locals
+        // 宿主已创建就直接挂上；没创建则由 makeUIView 读 box.subtitleURLs 补挂
+        box.view?.attachSubtitles(locals)
     }
 
     private func setPlayer(url newURL: URL, options newOptions: KSOptions) {
@@ -229,6 +282,8 @@ private struct LNPlayerSizing: ViewModifier {
 final class LNPlayerSyncBox {
     var time: Double = 0
     var wasPlaying = false
+    /// 进入全屏时选中的字幕 ID（全屏是独立播放实例，字幕靠它接上）
+    var subtitleID: String?
 }
 
 /// 桥接 IOSVideoPlayerView 回调的小盒子（weak delegate 的持有方）。
@@ -239,6 +294,10 @@ final class LNKSPlayerBox: NSObject, PlayerControllerDelegate {
     var onFinishError: ((Error?) -> Void)?
     /// 请求进入全屏（SwiftUI 侧置 showFullscreen = true）
     var onRequestFullscreen: (() -> Void)?
+    /// 已下载到本地的外挂字幕（NAS 同目录）。
+    /// 存在盒子里而不是只存在 @State 上：宿主视图可能晚于字幕下载完成才创建，
+    /// 创建/更新时都要能拿到这份列表补挂。
+    var subtitleURLs: [URL] = []
 
     func playerController(state _: KSPlayerState) {}
     func playerController(currentTime _: TimeInterval, totalTime: TimeInterval) {
@@ -265,6 +324,13 @@ final class LNPlayerView: IOSVideoPlayerView {
     var onRequestFullscreen: (() -> Void)?
 
     private var didAutoFullscreen = false
+    /// 是否已挂载过「外挂字幕」（NAS 同目录下载来的）。
+    /// 只有这种情况才接管字幕菜单——内嵌字幕继续交给 KSPlayer 原生菜单处理。
+    private var hasAttachedExternal = false
+    /// 上次构建菜单时的状态签名，避免状态回调里反复重建
+    private var lastMenuSignature = ""
+    /// 待恢复的字幕选择（全屏实例创建时内嵌字幕还没解析出来，要等字幕列表齐了再选）
+    var pendingSubtitleID: String?
 
     /// makeUIView 里调用：一次性配置
     func configure() {
@@ -303,6 +369,81 @@ final class LNPlayerView: IOSVideoPlayerView {
         onRequestFullscreen?()
     }
 
+    // MARK: - 外挂字幕（NAS 同目录）
+
+    /// 挂载已下载到本地的字幕文件。
+    ///
+    /// 为什么需要这段：KSPlayer 的 `DirectorySubtitleDataSouce` 只在
+    /// `fileURL.isFileURL` 时扫视频同目录——NAS 视频是 http 流式播放，
+    /// 目录里的 .srt/.ass 永远不会被发现。这里由 LNVideoView 主动从 NAS
+    /// 同目录把同名字幕下载到缓存，再交给播放器挂载。
+    ///
+    /// 幂等：`addSubtitle` 内部按 subtitleID 去重，重复调用安全
+    /// （内嵌宿主 / 全屏宿主 / 进度同步都会各自调一次）。
+    func attachSubtitles(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        for url in urls {
+            srtControl.addSubtitle(info: URLSubtitleInfo(url: url))
+        }
+        hasAttachedExternal = true
+
+        // 没有内嵌字幕/未选字幕时，自动启用第一个外挂字幕（主流播放器行为）
+        let externalIDs = Set(urls.map(\.absoluteString))
+        if srtControl.selectedSubtitleInfo == nil,
+           let first = srtControl.subtitleInfos.first(where: { externalIDs.contains($0.subtitleID) }) {
+            srtControl.selectedSubtitleInfo = first
+        }
+
+        toolBar.srtButton.isHidden = false
+        syncSubtitleMenu(force: true)
+    }
+
+    /// 全屏实例的字幕接续：内嵌字幕要等 readyToPlay 之后才解析出来，
+    /// 所以不是创建时选，而是每次状态回调尝试一次，选中后清空 pending。
+    private func restorePendingSubtitleIfNeeded() {
+        guard let id = pendingSubtitleID else { return }
+        guard let match = srtControl.subtitleInfos.first(where: { $0.subtitleID == id }) else { return }
+        srtControl.selectedSubtitleInfo = match
+        pendingSubtitleID = nil
+        lastMenuSignature = ""
+    }
+
+    /// 重建字幕菜单（带勾选态）。
+    ///
+    /// KSPlayer 的字幕菜单只在 `.readyToPlay`（以及其后 1 秒）构建一次，
+    /// NAS 外挂字幕往往比这更晚才下载完 —— 不重建的话菜单里永远看不到它们。
+    /// 内嵌字幕场景不接管，保持上游原生行为。
+    private func syncSubtitleMenu(force: Bool = false) {
+        guard hasAttachedExternal else { return }
+        let signature = "\(srtControl.subtitleInfos.count)#\(srtControl.selectedSubtitleInfo?.subtitleID ?? "-")"
+        guard force || signature != lastMenuSignature else { return }
+        lastMenuSignature = signature
+
+        let currentID = srtControl.selectedSubtitleInfo?.subtitleID
+        var actions: [UIAction] = [
+            UIAction(title: "不显示字幕", state: currentID == nil ? .on : .off) { [weak self] _ in
+                Task { @MainActor in
+                    self?.srtControl.selectedSubtitleInfo = nil
+                    self?.lastMenuSignature = ""
+                }
+            },
+        ]
+        for info in srtControl.subtitleInfos {
+            actions.append(
+                UIAction(title: info.name,
+                         state: info.subtitleID == currentID ? .on : .off) { [weak self] _ in
+                    Task { @MainActor in
+                        self?.srtControl.selectedSubtitleInfo = info
+                        self?.lastMenuSignature = ""
+                    }
+                }
+            )
+        }
+        toolBar.srtButton.menu = UIMenu(title: "字幕", children: actions)
+        toolBar.srtButton.showsMenuAsPrimaryAction = true
+        toolBar.srtButton.isHidden = false
+    }
+
     override func updateUI(isLandscape: Bool) {
         super.updateUI(isLandscape: isLandscape)
         // KSPlayer 竖屏内嵌下会隐藏这些按钮；统一常显，
@@ -327,6 +468,11 @@ final class LNPlayerView: IOSVideoPlayerView {
         default:
             break
         }
+
+        // 字幕列表可能在播放过程中变长（内嵌字幕晚于 readyToPlay、外挂字幕下载完成），
+        // 每次状态回调顺便对齐菜单；签名没变时是一次字符串比较，开销可忽略
+        restorePendingSubtitleIfNeeded()
+        syncSubtitleMenu()
 
         guard state == .bufferFinished, autoFullscreenOnPlay, !didAutoFullscreen else { return }
         didAutoFullscreen = true
@@ -354,6 +500,8 @@ struct LNKSPlayerHost: UIViewRepresentable {
         }
         playerView.autoFullscreenOnPlay = autoFullscreenOnPlay
         playerView.onRequestFullscreen = onRequestFullscreen
+        // NAS 同目录字幕：宿主可能晚于字幕下载完成才创建，创建时补挂一次
+        playerView.attachSubtitles(box.subtitleURLs)
         box.view = playerView
         return playerView
     }
@@ -363,6 +511,8 @@ struct LNKSPlayerHost: UIViewRepresentable {
         if playerView.playerLayer?.url != url {
             playerView.set(url: url, options: options)
         }
+        // 字幕晚到（下载完成）时补挂；attachSubtitles 内部按 subtitleID 去重，幂等
+        playerView.attachSubtitles(box.subtitleURLs)
     }
 
     static func dismantleUIView(_ playerView: LNPlayerView, coordinator _: ()) {
@@ -418,10 +568,17 @@ struct LNKSFullscreenHost: UIViewRepresentable {
         if let layer = playerView.playerLayer {
             layer.seek(time: max(0, startTime), autoPlay: autoplay) { _ in }
         }
+        // NAS 同目录字幕（独立实例要单独挂一份）
+        playerView.attachSubtitles(box.subtitleURLs)
+        // 接上内嵌选中的字幕；内嵌轨道还没解析出来时由状态回调重试
+        playerView.pendingSubtitleID = sync.subtitleID
         return playerView
     }
 
-    func updateUIView(_ view: LNPlayerView, context _: Context) {}
+    func updateUIView(_ view: LNPlayerView, context _: Context) {
+        // 字幕可能在进入全屏后才下载完 → 补挂（幂等）
+        view.attachSubtitles(box.subtitleURLs)
+    }
 
     static func dismantleUIView(_ playerView: LNPlayerView, coordinator: Coordinator) {
         Task { @MainActor in
@@ -429,6 +586,8 @@ struct LNKSFullscreenHost: UIViewRepresentable {
             // 记录退出时的进度与播放状态，交给 LNVideoView 的 onDismiss 写回内嵌实例
             coordinator.sync.time = layer.player.currentPlaybackTime
             coordinator.sync.wasPlaying = layer.state.isPlaying
+            // 字幕选择一并带回去（全屏里可能换过字幕）
+            coordinator.sync.subtitleID = playerView.srtControl.selectedSubtitleInfo?.subtitleID
             layer.pause()
             playerView.playerLayer = nil
         }
