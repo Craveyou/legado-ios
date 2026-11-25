@@ -5,7 +5,9 @@ import SwiftUI
 struct LNCategoryView: View {
     let source: any LNLibrarySource
     let title: String
-    let subtitle: String
+    /// 说明文字：不传则不显示（本地 / 飞牛 NAS 分类页已去掉，
+    /// 让标题位置与 NAS tab 完全一致）
+    var subtitle: String? = nil
     /// NAS 首屏不预统计（三类各一次远端探测会拖慢进入），进入分类时再加载
     var showsCounts: Bool = true
     /// 页面底部附加内容（NAS 用来放「浏览全部文件」入口）
@@ -16,7 +18,9 @@ struct LNCategoryView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            // 水平内边距统一交给 header 内部的 24：
+            // 之前外层又叠了 20，标题被多推右 20pt，与 NAS tab 错位、也和卡片不对齐。
+            VStack(alignment: .leading, spacing: 0) {
                 ReadingPageHeader(title: title, subtitle: subtitle) {
                     // 与 NAS tab 头部保持一致（NAS 用 + 添加连接）；
                     // 本地书库通过「文件」App 放书，这里用空操作占位保持视觉对称。
@@ -34,11 +38,13 @@ struct LNCategoryView: View {
                         .accessibilityIdentifier("ln.category.\(cat.rawValue)")
                     }
                 }
+                .padding(.horizontal, 24)
                 if let extraContent {
                     extraContent
+                        .padding(.horizontal, 24)
+                        .padding(.top, 14)
                 }
             }
-            .padding(.horizontal, 20)
             .padding(.bottom, 30)
         }
         .background(ReadingTheme.canvas.ignoresSafeArea())

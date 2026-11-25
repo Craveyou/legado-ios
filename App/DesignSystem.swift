@@ -197,11 +197,20 @@ enum ReadingTheme {
 
 struct ReadingPageHeader<Actions: View>: View {
     let title: String
-    let subtitle: String
+    /// 说明文字：不传（或传空串）时不渲染，也不留额外行高与间距——
+    /// 这样「无说明」的页面与「有说明」的页面，标题位置完全一致。
+    var subtitle: String? = nil
     @ViewBuilder var actions: Actions
 
+    /// 去掉空白后的有效说明；nil 表示这段说明不显示
+    private var resolvedSubtitle: String? {
+        guard let subtitle,
+              !subtitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return subtitle
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: resolvedSubtitle == nil ? 0 : 10) {
             HStack(alignment: .center, spacing: 16) {
                 Text(title)
                     .font(.largeTitle.bold())
@@ -210,14 +219,16 @@ struct ReadingPageHeader<Actions: View>: View {
                 Spacer(minLength: 0)
                 HStack(spacing: 10) { actions }
             }
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            if let resolvedSubtitle {
+                Text(resolvedSubtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24)
         .padding(.top, 20)
-        .padding(.bottom, 28)
+        .padding(.bottom, resolvedSubtitle == nil ? 24 : 28)
     }
 }
 

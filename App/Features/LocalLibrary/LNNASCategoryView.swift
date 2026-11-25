@@ -8,7 +8,6 @@ struct LNNASCategoryView: View {
     var body: some View {
         LNCategoryView(source: LNNASSource(connection: connection, rootPath: "/"),
                        title: connection.name,
-                       subtitle: "漫画 · 整理 · 短剧 — 飞牛上的三个分类目录",
                        showsCounts: false,
                        extraContent: AnyView(browseAll))
     }
