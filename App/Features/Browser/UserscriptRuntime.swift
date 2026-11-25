@@ -208,7 +208,7 @@ final class LNUserscriptRuntime: NSObject, WKScriptMessageHandler {
               let url = URL(string: urlString) else { return }
 
         var request = URLRequest(url: url)
-        request.httpMethod = (body["method"] as? String).uppercased()
+        request.httpMethod = (body["method"] as? String ?? "GET").uppercased()
         if let headers = body["headers"] as? [String: String] {
             for (key, value) in headers {
                 request.setValue(value, forHTTPHeaderField: key)
