@@ -70,6 +70,29 @@ struct LegadoApp: App {
                                                          detail: bookLibrary.errorMessage ?? url.lastPathComponent)
                             return
                         }
+                        if url.isFileURL, Self.looksLikeUserscriptFile(url) {
+                            // 从微信 / Safari / 文件 App「用其他应用打开」进来的 .user.js
+                            let outcome = await LNUserscriptStore.shared.importFile(at: url)
+                            switch outcome {
+                            case .success(.added(let name)):
+                                sourceLibrary.notice = .init(kind: .success,
+                                                             title: "油猴脚本已导入",
+                                                             detail: "《\(name)》\n在「浏览器 → 油猴脚本」里查看和开关。")
+                            case .success(.updated(let name)):
+                                sourceLibrary.notice = .init(kind: .success,
+                                                             title: "油猴脚本已更新",
+                                                             detail: "《\(name)》")
+                            case .success(.invalid):
+                                sourceLibrary.notice = .init(kind: .error,
+                                                             title: "不是有效的油猴脚本",
+                                                             detail: url.lastPathComponent)
+                            case .failure(let error):
+                                sourceLibrary.notice = .init(kind: .error,
+                                                             title: "脚本导入失败",
+                                                             detail: "\(url.lastPathComponent)\n\(error.reason)")
+                            }
+                            return
+                        }
                         await sourceLibrary.load()
                         if RuleImportInput.isDeepLink(url, for: "replaceRule") {
                             await replaceRuleLibrary.load()
@@ -82,6 +105,13 @@ struct LegadoApp: App {
                     }
                 }
         }
+    }
+
+    /// 外部打开的文件是否是脚本文件（.user.js 的 pathExtension 是 js）
+    private static func looksLikeUserscriptFile(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        guard !ext.isEmpty else { return false }
+        return ["js", "mjs", "txt", "text", "javascript"].contains(ext)
     }
 }
 

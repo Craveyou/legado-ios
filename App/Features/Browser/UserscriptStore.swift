@@ -177,3 +177,71 @@ final class LNUserscriptStore: ObservableObject {
         return result
     }
 }
+
+// MARK: - 文件导入（fileImporter 与「用其他应用打开」共用）
+
+/// 文件导入失败原因，reason 直接展示给用户
+struct LNUserscriptFileError: Error, Sendable {
+    let reason: String
+}
+
+extension LNUserscriptStore {
+    /// 后台读取并解析脚本文件，不依赖调用方线程
+    nonisolated static func readScriptFile(at url: URL) throws -> LNUserscript {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: url, options: [.mappedIfSafe])
+        } catch {
+            throw LNUserscriptFileError(reason: "读取失败：\(error.localizedDescription)")
+        }
+        guard !data.isEmpty else {
+            throw LNUserscriptFileError(reason: "文件是空的")
+        }
+        guard let text = decodeText(data) else {
+            throw LNUserscriptFileError(reason: "无法识别文本编码（\(data.count) 字节）")
+        }
+        guard LNUserscriptParser.looksLikeUserscript(text) else {
+            throw LNUserscriptFileError(reason: "没有 ==UserScript== 头部，不是油猴脚本")
+        }
+        guard let script = LNUserscriptParser.parse(text) else {
+            throw LNUserscriptFileError(reason: "头部之后没有代码内容")
+        }
+        return script
+    }
+
+    /// 依次尝试 UTF-8 / UTF-16(BOM) / GB18030 / Latin-1
+    /// GB18030 的 NSStringEncoding 常量是 0x80000632
+    /// （CFStringConvertEncodingToNSStringEncoding(kCFStringEncodingGB_18030_2000) 的结果），
+    /// 直接写数值避免依赖 CFStringEncodings 的 Swift 枚举名。
+    nonisolated static func decodeText(_ data: Data) -> String? {
+        if let text = String(data: data, encoding: .utf8) { return text }
+        if data.count >= 2 {
+            let bom = [UInt8](data.prefix(2))
+            if bom == [0xFF, 0xFE] || bom == [0xFE, 0xFF],
+               let text = String(data: data, encoding: .utf16) {
+                return text
+            }
+        }
+        if let text = String(data: data, encoding: String.Encoding(rawValue: 0x80000632)) {
+            return text
+        }
+        return String(data: data, encoding: .isoLatin1)
+    }
+
+    /// 主线程入口：后台读文件，回到主线程入库
+    func importFile(at url: URL) async -> Result<ImportOutcome, LNUserscriptFileError> {
+        do {
+            let script = try await Task.detached(priority: .userInitiated) {
+                try LNUserscriptStore.readScriptFile(at: url)
+            }.value
+            return .success(add(script))
+        } catch let error as LNUserscriptFileError {
+            return .failure(error)
+        } catch {
+            return .failure(LNUserscriptFileError(reason: error.localizedDescription))
+        }
+    }
+}

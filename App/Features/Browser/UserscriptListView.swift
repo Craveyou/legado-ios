@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 // MARK: - 脚本列表
@@ -13,7 +14,9 @@ struct LNUserscriptListView: View {
     @State private var toast: String?
 
     var body: some View {
-        Group {
+        // 用 ZStack 而不是 Group：Group 内部 if/else 分支切换会重建子树，
+        // 挂在它上面的 fileImporter 可能中途丢掉 presentation 回调。
+        ZStack {
             if store.scripts.isEmpty {
                 emptyState
             } else {
@@ -33,6 +36,11 @@ struct LNUserscriptListView: View {
                         Label("从文件导入", systemImage: "doc.badge.plus")
                     }
                     Button {
+                        importFromClipboard()
+                    } label: {
+                        Label("从剪贴板导入", systemImage: "doc.on.clipboard")
+                    }
+                    Button {
                         showsImportSheet = true
                     } label: {
                         Label("粘贴文本 / 从网址导入", systemImage: "square.and.pencil")
@@ -44,7 +52,7 @@ struct LNUserscriptListView: View {
             }
         }
         .fileImporter(isPresented: $showsFileImporter,
-                      allowedContentTypes: [.plainText, .sourceCode, .data],
+                      allowedContentTypes: scriptFileTypes,
                       allowsMultipleSelection: true) { result in
             handleFileImport(result)
         }
@@ -74,11 +82,15 @@ struct LNUserscriptListView: View {
         .overlay(alignment: .bottom) {
             if let toast {
                 Text(toast)
-                    .font(.subheadline)
+                    .font(.footnote)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(ReadingTheme.emphasisSurface, in: Capsule())
+                    .background(ReadingTheme.emphasisSurface,
+                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .foregroundStyle(ReadingTheme.onAccent)
+                    .padding(.horizontal, 24)
                     .padding(.bottom, 24)
                     .transition(.opacity)
             }
@@ -187,49 +199,80 @@ struct LNUserscriptListView: View {
 
     // MARK: 文件导入
 
+    /// 文件选择器允许的类型：`public.item` 兜底，保证 .user.js / 无扩展名文件都不会被灰掉
+    private var scriptFileTypes: [UTType] {
+        var types: [UTType] = []
+        if let js = UTType(filenameExtension: "js") { types.append(js) }
+        if let userJS = UTType(filenameExtension: "user.js") { types.append(userJS) }
+        types.append(contentsOf: [.plainText, .text, .sourceCode, .data, .item])
+        return types
+    }
+
     private func handleFileImport(_ result: Result<[URL], Error>) {
         switch result {
         case .failure(let error):
-            showToast("导入失败：\(error.localizedDescription)")
+            showToast("打开文件选择器失败：\(error.localizedDescription)", duration: 4)
         case .success(let urls):
-            guard !urls.isEmpty else { return }
-            var added = 0
-            var updated = 0
-            var invalid: [String] = []
-
-            for url in urls {
-                let accessed = url.startAccessingSecurityScopedResource()
-                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-
-                guard let data = try? Data(contentsOf: url),
-                      let text = String(data: data, encoding: .utf8)
-                        ?? String(data: data, encoding: .isoLatin1) else {
-                    invalid.append(url.lastPathComponent)
-                    continue
-                }
-                guard let script = LNUserscriptParser.parse(text) else {
-                    invalid.append(url.lastPathComponent)
-                    continue
-                }
-                switch store.add(script) {
-                case .added: added += 1
-                case .updated: updated += 1
-                case .invalid: invalid.append(url.lastPathComponent)
-                }
+            guard !urls.isEmpty else {
+                showToast("没有选中文件", duration: 2)
+                return
             }
+            Task { @MainActor in
+                var added = 0
+                var updated = 0
+                var failures: [String] = []
 
-            var parts: [String] = []
-            if added > 0 { parts.append("新增 \(added) 个") }
-            if updated > 0 { parts.append("更新 \(updated) 个") }
-            if !invalid.isEmpty { parts.append("\(invalid.count) 个不是有效脚本") }
-            showToast(parts.isEmpty ? "没有可导入的脚本" : parts.joined(separator: "，"))
+                for url in urls {
+                    let outcome = await store.importFile(at: url)
+                    switch outcome {
+                    case .success(.added):
+                        added += 1
+                    case .success(.updated):
+                        updated += 1
+                    case .success(.invalid):
+                        failures.append("\(url.lastPathComponent)：内容无效")
+                    case .failure(let error):
+                        failures.append("\(url.lastPathComponent)：\(error.reason)")
+                    }
+                }
+
+                var parts: [String] = []
+                if added > 0 { parts.append("新增 \(added) 个") }
+                if updated > 0 { parts.append("更新 \(updated) 个") }
+                if !failures.isEmpty { parts.append("失败 \(failures.count) 个") }
+                let summary = parts.isEmpty ? "没有可导入的脚本" : parts.joined(separator: "，")
+                let detail = failures.isEmpty ? summary : summary + "\n" + failures.prefix(3).joined(separator: "\n")
+                showToast(detail, duration: failures.isEmpty ? 2 : 5)
+            }
         }
     }
 
-    private func showToast(_ message: String) {
+    /// iOS 上从粘贴板拿脚本比翻文件快得多，做成一键
+    private func importFromClipboard() {
+        guard let text = UIPasteboard.general.string,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            showToast("剪贴板里没有文字", duration: 2)
+            return
+        }
+        guard LNUserscriptParser.looksLikeUserscript(text) else {
+            showToast("剪贴板内容没有 ==UserScript== 头部", duration: 4)
+            return
+        }
+        guard let script = LNUserscriptParser.parse(text) else {
+            showToast("不是有效的油猴脚本", duration: 4)
+            return
+        }
+        switch store.add(script) {
+        case .added(let name): showToast("已导入《\(name)》")
+        case .updated(let name): showToast("已更新《\(name)》")
+        case .invalid: showToast("脚本内容无效", duration: 4)
+        }
+    }
+
+    private func showToast(_ message: String, duration: TimeInterval = 2.2) {
         toast = message
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
             if toast == message { toast = nil }
         }
     }
@@ -478,12 +521,19 @@ private struct LNUserscriptDetailView: View {
         }
     }
 
+    /// 大脚本（几百 KB）整段丢给 Text 会把主线程按住，所以只渲染前 2 万字符
+    private var codePreview: String {
+        let limit = 20_000
+        guard current.code.count > limit else { return current.code }
+        return String(current.code.prefix(limit)) + "\n\n… 已省略 \(current.code.count - limit) 个字符（脚本共 \(current.code.count) 字符）"
+    }
+
     private var codeSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("脚本代码")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(ReadingTheme.ink.opacity(0.7))
-            Text(current.code)
+            Text(codePreview)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(ReadingTheme.ink.opacity(0.75))
                 .frame(maxWidth: .infinity, alignment: .leading)
