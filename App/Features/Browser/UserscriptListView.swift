@@ -7,15 +7,13 @@ import UniformTypeIdentifiers
 struct LNUserscriptListView: View {
     @ObservedObject private var store = LNUserscriptStore.shared
 
-    @State private var showsFileImporter = false
     @State private var showsImportSheet = false
     @State private var detailScript: LNUserscript?
     @State private var pendingDelete: LNUserscript?
     @State private var toast: String?
 
     var body: some View {
-        // 用 ZStack 而不是 Group：Group 内部 if/else 分支切换会重建子树，
-        // 挂在它上面的 fileImporter 可能中途丢掉 presentation 回调。
+        // 用 ZStack 而不是 Group：Group 内部 if/else 分支切换会重建子树。
         ZStack {
             if store.scripts.isEmpty {
                 emptyState
@@ -31,7 +29,7 @@ struct LNUserscriptListView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     Button {
-                        showsFileImporter = true
+                        presentFilePicker()
                     } label: {
                         Label("从文件导入", systemImage: "doc.badge.plus")
                     }
@@ -39,6 +37,11 @@ struct LNUserscriptListView: View {
                         importFromClipboard()
                     } label: {
                         Label("从剪贴板导入", systemImage: "doc.on.clipboard")
+                    }
+                    Button {
+                        importFromAppFolder()
+                    } label: {
+                        Label("扫描 App 文件夹", systemImage: "folder.badge.gearshape")
                     }
                     Button {
                         showsImportSheet = true
@@ -50,11 +53,6 @@ struct LNUserscriptListView: View {
                 }
                 .accessibilityLabel("导入脚本")
             }
-        }
-        .fileImporter(isPresented: $showsFileImporter,
-                      allowedContentTypes: scriptFileTypes,
-                      allowsMultipleSelection: true) { result in
-            handleFileImport(result)
         }
         .sheet(isPresented: $showsImportSheet) {
             LNUserscriptImportSheet { message in
@@ -173,7 +171,7 @@ struct LNUserscriptListView: View {
 
             VStack(spacing: 10) {
                 Button {
-                    showsFileImporter = true
+                    presentFilePicker()
                 } label: {
                     Label("从文件导入", systemImage: "doc.badge.plus")
                         .font(.subheadline.weight(.medium))
@@ -199,51 +197,79 @@ struct LNUserscriptListView: View {
 
     // MARK: 文件导入
 
-    /// 文件选择器允许的类型：`public.item` 兜底，保证 .user.js / 无扩展名文件都不会被灰掉
-    private var scriptFileTypes: [UTType] {
-        var types: [UTType] = []
-        if let js = UTType(filenameExtension: "js") { types.append(js) }
-        if let userJS = UTType(filenameExtension: "user.js") { types.append(userJS) }
-        types.append(contentsOf: [.plainText, .text, .sourceCode, .data, .item])
-        return types
-    }
-
-    private func handleFileImport(_ result: Result<[URL], Error>) {
-        switch result {
-        case .failure(let error):
-            showToast("打开文件选择器失败：\(error.localizedDescription)", duration: 4)
-        case .success(let urls):
-            guard !urls.isEmpty else {
-                showToast("没有选中文件", duration: 2)
-                return
-            }
-            Task { @MainActor in
-                var added = 0
-                var updated = 0
-                var failures: [String] = []
-
-                for url in urls {
-                    let outcome = await store.importFile(at: url)
-                    switch outcome {
-                    case .success(.added):
-                        added += 1
-                    case .success(.updated):
-                        updated += 1
-                    case .success(.invalid):
-                        failures.append("\(url.lastPathComponent)：内容无效")
-                    case .failure(let error):
-                        failures.append("\(url.lastPathComponent)：\(error.reason)")
+    /// 用 UIKit 的文档选择器（见文件末尾 LNUserscriptFilePicker）。
+    /// SwiftUI 的 .fileImporter 在 iOS 18/26 多选模式下有「选完点打开、回调不触发」的回归，
+    /// 表现就是点了完全没反应，所以这里绕开它。
+    private func presentFilePicker() {
+        Task { @MainActor in
+            // 等「+」菜单收起，避免和 menu 的 presentation 撞车
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            LNUserscriptFilePicker.shared.present { urls in
+                Task { @MainActor in
+                    if urls.isEmpty {
+                        showToast("没有选中文件", duration: 2)
+                    } else {
+                        await importFiles(urls)
                     }
                 }
-
-                var parts: [String] = []
-                if added > 0 { parts.append("新增 \(added) 个") }
-                if updated > 0 { parts.append("更新 \(updated) 个") }
-                if !failures.isEmpty { parts.append("失败 \(failures.count) 个") }
-                let summary = parts.isEmpty ? "没有可导入的脚本" : parts.joined(separator: "，")
-                let detail = failures.isEmpty ? summary : summary + "\n" + failures.prefix(3).joined(separator: "\n")
-                showToast(detail, duration: failures.isEmpty ? 2 : 5)
             }
+        }
+    }
+
+    private func importFiles(_ urls: [URL]) async {
+        var added = 0
+        var updated = 0
+        var failures: [String] = []
+
+        for url in urls {
+            let outcome = await store.importFile(at: url)
+            switch outcome {
+            case .success(.added):
+                added += 1
+            case .success(.updated):
+                updated += 1
+            case .success(.invalid):
+                failures.append("\(url.lastPathComponent)：内容无效")
+            case .failure(let error):
+                failures.append("\(url.lastPathComponent)：\(error.reason)")
+            }
+            // asCopy 复制进 tmp 的副本，导入完就删，别占空间
+            if url.path.contains("/tmp/") {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        var parts: [String] = []
+        if added > 0 { parts.append("新增 \(added) 个") }
+        if updated > 0 { parts.append("更新 \(updated) 个") }
+        if !failures.isEmpty { parts.append("失败 \(failures.count) 个") }
+        let summary = parts.isEmpty ? "没有可导入的脚本" : parts.joined(separator: "，")
+        let detail = failures.isEmpty ? summary : summary + "\n" + failures.prefix(3).joined(separator: "\n")
+        showToast(detail, duration: failures.isEmpty ? 2 : 5)
+    }
+
+    /// 兜底通道：文件选择器万一还是不给回调，用户可以用「文件」App 把脚本拖进
+    /// 「我的 iPhone → 小浣熊阅读」目录，这里直接扫本机文档目录导入。
+    private func importFromAppFolder() {
+        Task { @MainActor in
+            let fm = FileManager.default
+            let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            var found: [URL] = []
+            if let enumerator = fm.enumerator(at: docs,
+                                              includingPropertiesForKeys: [.isRegularFileKey],
+                                              options: [.skipsHiddenFiles]) {
+                for case let fileURL as URL in enumerator {
+                    let ext = fileURL.pathExtension.lowercased()
+                    if ["js", "mjs", "txt", "text"].contains(ext) {
+                        found.append(fileURL)
+                    }
+                }
+            }
+            guard !found.isEmpty else {
+                showToast("「小浣熊阅读」文件夹里没有 .js 文件\n用「文件」App 把脚本拖进去再试一次", duration: 6)
+                return
+            }
+            await importFiles(found)
         }
     }
 
@@ -542,5 +568,69 @@ private struct LNUserscriptDetailView: View {
                             in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .textSelection(.enabled)
         }
+    }
+}
+
+// MARK: - 文件选择器（UIKit 直连）
+
+/// 直接用 UIDocumentPickerViewController，不走 SwiftUI 的 .fileImporter。
+///
+/// 为什么：iOS 18/26 上 `.fileImporter(isPresented:allowedContentTypes:allowsMultipleSelection:)`
+/// 存在「文件已选中、点打开后 completion 不触发」的回归，表现为点了完全没反应。
+/// UIKit 的 delegate 是基础契约，不会丢回调。
+///
+/// asCopy: true 让系统把文件复制进 App 沙盒，返回的 URL 不需要 security scope 就能读，
+/// 也避免 iCloud / 其他 App 容器文件读到一半权限失效。
+@MainActor
+final class LNUserscriptFilePicker: NSObject, UIDocumentPickerDelegate {
+    static let shared = LNUserscriptFilePicker()
+
+    private var completion: (([URL]) -> Void)?
+
+    private static var contentTypes: [UTType] {
+        var types: [UTType] = []
+        if let js = UTType(filenameExtension: "js") { types.append(js) }
+        types.append(contentsOf: [.plainText, .text, .sourceCode, .data, .item])
+        return types
+    }
+
+    func present(completion: @escaping ([URL]) -> Void) {
+        guard let presenter = Self.topViewController() else {
+            completion([])
+            return
+        }
+        // 已经有一个文档选择器在显示时不要重复 present
+        if presenter is UIDocumentPickerViewController || presenter.presentedViewController is UIDocumentPickerViewController {
+            return
+        }
+
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: Self.contentTypes, asCopy: true)
+        picker.allowsMultipleSelection = true
+        picker.shouldShowFileExtensions = true
+        picker.delegate = self
+        self.completion = completion
+        presenter.present(picker, animated: true)
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        let callback = completion
+        completion = nil
+        callback?(urls)
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        completion = nil
+    }
+
+    private static func topViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        guard let window = scene?.windows.first(where: { $0.isKeyWindow }) ?? scene?.windows.first,
+              let root = window.rootViewController else { return nil }
+        var top = root
+        while let presented = top.presentedViewController, !presented.isBeingDismissed {
+            top = presented
+        }
+        return top
     }
 }
