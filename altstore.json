@@ -1,0 +1,42 @@
+{
+  "name": "小浣熊阅读 · 未签名构建",
+  "subtitle": "KSPlayer 全格式播放 / 本地与 NAS 书库 / 油猴浏览器",
+  "description": "小浣熊阅读（legado-ios）的个人定制构建分发源。支持阅读书源、本地 TXT/EPUB、本地漫画/整理/短剧、飞牛 NAS 四类书库、KSPlayer 全格式视频播放与外挂字幕、内嵌浏览器与油猴脚本。未签名 IPA，安装走你自己的 Apple 账号，免费账号 7 天需刷新。",
+  "iconURL": "https://raw.githubusercontent.com/Craveyou/legado-ios/main/App/Assets.xcassets/BrandIcon.imageset/BrandIcon.png",
+  "website": "https://github.com/Craveyou/legado-ios",
+  "tintColor": "#315C50",
+  "apps": [
+    {
+      "name": "小浣熊阅读",
+      "bundleIdentifier": "com.epiboly.legado",
+      "developerName": "Craveyou",
+      "subtitle": "搜书快一点，读书舒服一点",
+      "localizedDescription": "优先兼容阅读书源的 iOS 阅读器，额外提供 KSPlayer 全格式视频播放（含 mkv / 外挂字幕 / 自动全屏）、本地漫画/整理/短剧书库、飞牛 NAS 四类目录、以及带油猴脚本的内嵌浏览器。\n\n不提供书源或在线书库，请自行导入有使用权的书源，或阅读本地 TXT / EPUB。",
+      "iconURL": "https://raw.githubusercontent.com/Craveyou/legado-ios/main/App/Assets.xcassets/BrandIcon.imageset/BrandIcon.png",
+      "tintColor": "#315C50",
+      "category": "utilities",
+      "screenshots": [
+        "https://raw.githubusercontent.com/Craveyou/legado-ios/main/docs/images/explore.png"
+      ],
+      "versions": [
+        {
+          "version": "0.1.15",
+          "buildVersion": "77",
+          "date": "2026-11-26",
+          "localizedDescription": "build 77：NAS WebDAV 共享根路径映射修复（SMB /电影 → WebDAV /nas/电影），目录浏览与电影列表正常；油猴脚本引擎、移动端 UA、浏览器收藏与运行日志均已可用。",
+          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b77/Legado-xiaohuanxiong-video-b77-pathmap-unsigned.ipa",
+          "size": 28581350,
+          "minOSVersion": "15.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSCameraUsageDescription": "用于扫描书源和净化规则的导入二维码。",
+          "NSPhotoLibraryAddUsageDescription": "用于保存阅读页面中的图片到照片图库。"
+        }
+      }
+    }
+  ],
+  "news": []
+}
