@@ -21,11 +21,11 @@
       "versions": [
         {
           "version": "0.1.15",
-          "buildVersion": "77",
+          "buildVersion": "78",
           "date": "2026-11-26",
-          "localizedDescription": "build 77：NAS WebDAV 共享根路径映射修复（SMB /电影 → WebDAV /nas/电影），目录浏览与电影列表正常；油猴脚本引擎、移动端 UA、浏览器收藏与运行日志均已可用。",
-          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b77/Legado-xiaohuanxiong-video-b77-pathmap-unsigned.ipa",
-          "size": 28581350,
+          "localizedDescription": "build 78：视频未播放前显示占位图（深色渐变 + 播放图标），不再整块黑屏；播放开始时 KSPlayer 自动淡出露出画面。包含 b77 的 NAS WebDAV 路径映射修复与全部既有功能。",
+          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b78/Legado-xiaohuanxiong-video-b78-placeholder-unsigned.ipa",
+          "size": 28583039,
           "minOSVersion": "15.0"
         }
       ],
