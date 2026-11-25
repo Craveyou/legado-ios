@@ -4,6 +4,10 @@
 
 name: External Reader IPA
 
+# 发布 Release 需要写权限；artifact 上传本身读权限即可。
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
     inputs:
@@ -35,6 +39,14 @@ on:
         description: '是否先 pod install'
         required: false
         default: 'false'
+      publish_release:
+        description: '构建成功后是否发布为 GitHub Release（未签名 IPA）'
+        required: false
+        default: 'true'
+      release_tag:
+        description: 'Release 标签，留空则从 ipa_name 提取 bNN（如 b77）'
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -128,3 +140,36 @@ jobs:
           path: ${{ env.IPA_PATH }}
           retention-days: 14
           if-no-files-found: error
+
+      # 发布到 Releases：用户可直接在 GitHub 页面下载，不必再取 artifact。
+      # continue-on-error 保证发布失败不阻断构建成功与 artifact 交付。
+      - name: 计算 Release 标签
+        if: ${{ inputs.publish_release == 'true' }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.release_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="$(printf '%s' "$IPA_NAME" | grep -oE 'b[0-9]+' | head -1 || true)"
+          fi
+          [ -n "$TAG" ] || TAG="build-$(date +%Y%m%d%H%M%S)"
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "release tag: $TAG"
+
+      - name: 发布 GitHub Release（未签名 IPA）
+        if: ${{ inputs.publish_release == 'true' }}
+        continue-on-error: true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: 小浣熊阅读 ${{ env.RELEASE_TAG }} · 未签名 IPA
+          body: |
+            ${{ inputs.ipa_name }}
+
+            ⚠️ 未签名包，iOS 不能直接点击安装，请用 Sideloadly / AltStore 侧载。
+
+            - Bundle ID: com.epiboly.legado
+            - 编译: Xcode 27 / generic iOS / arm64
+            - 来源: Actions run ${{ github.run_id }}
+          files: ${{ env.IPA_PATH }}
+          prerelease: true
+          fail_on_unmatched_files: true
