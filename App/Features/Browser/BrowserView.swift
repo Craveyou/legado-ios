@@ -67,18 +67,116 @@ final class LNBrowserModel: ObservableObject {
     }
 }
 
+// MARK: - 收藏网址
+
+struct LNBrowserFavorite: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var title: String
+    var urlString: String
+
+    /// 补全 scheme 后的地址
+    var resolvedURLString: String {
+        let text = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return text }
+        if let url = URL(string: text), let scheme = url.scheme?.lowercased(),
+           ["http", "https"].contains(scheme) {
+            return text
+        }
+        return "https://" + text
+    }
+
+    var host: String {
+        URL(string: resolvedURLString)?.host ?? urlString
+    }
+
+    /// 图标上显示的首字：优先名称，其次域名（去掉 www.）
+    var badge: String {
+        var source = title.trimmingCharacters(in: .whitespaces)
+        if source.isEmpty {
+            source = host
+            if source.hasPrefix("www.") { source = String(source.dropFirst(4)) }
+        }
+        guard let first = source.first else { return "·" }
+        return String(first).uppercased()
+    }
+
+    var displayTitle: String {
+        let trimmed = title.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? host : trimmed
+    }
+}
+
+@MainActor
+final class LNBrowserFavorites: ObservableObject {
+    static let shared = LNBrowserFavorites()
+
+    @Published private(set) var items: [LNBrowserFavorite] = []
+
+    private let fileURL: URL
+
+    /// 首次启动给两个常用入口，用户可以删掉换成自己的
+    private static let starter: [LNBrowserFavorite] = [
+        LNBrowserFavorite(title: "Bing", urlString: "https://www.bing.com"),
+        LNBrowserFavorite(title: "百度", urlString: "https://www.baidu.com"),
+    ]
+
+    init() {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Legado", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        fileURL = dir.appendingPathComponent("browser-favorites.json")
+
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode([LNBrowserFavorite].self, from: data) {
+            items = decoded
+        } else {
+            items = Self.starter
+            persist()
+        }
+    }
+
+    func add(_ favorite: LNBrowserFavorite) {
+        guard !items.contains(where: { $0.id == favorite.id }) else {
+            update(favorite)
+            return
+        }
+        items.append(favorite)
+        persist()
+    }
+
+    func update(_ favorite: LNBrowserFavorite) {
+        guard let index = items.firstIndex(where: { $0.id == favorite.id }) else {
+            add(favorite)
+            return
+        }
+        items[index] = favorite
+        persist()
+    }
+
+    func remove(id: UUID) {
+        items.removeAll { $0.id == id }
+        persist()
+    }
+
+    private func persist() {
+        guard let data = try? JSONEncoder().encode(items) else { return }
+        try? data.write(to: fileURL, options: .atomic)
+    }
+}
+
 // MARK: - 浏览器页面
 
 struct LNBrowserView: View {
     @StateObject private var model = LNBrowserModel()
+    @ObservedObject private var favorites = LNBrowserFavorites.shared
     @State private var addressText = ""
     @State private var showsShare = false
+    @State private var favoriteDraft: LNBrowserFavorite?
+    @State private var favoriteEditMode = false
     @FocusState private var addressFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            addressBar
-
             ZStack(alignment: .top) {
                 LNBrowserWebHost(model: model)
 
@@ -92,7 +190,7 @@ struct LNBrowserView: View {
                 }
 
                 if !model.hasLoadedOnce {
-                    startPage
+                    favoritesPage
                 }
 
                 if let message = model.errorMessage, model.hasLoadedOnce {
@@ -107,6 +205,10 @@ struct LNBrowserView: View {
         .navigationBarTitleDisplayMode(.inline)
         .lnShowsTabBar()
         .toolbar {
+            // 地址栏搬到导航栏中间：内容区整块留给网页 / 收藏页
+            ToolbarItem(placement: .principal) {
+                addressBar
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 NavigationLink {
                     LNUserscriptListView()
@@ -126,15 +228,20 @@ struct LNBrowserView: View {
                 LNShareSheet(items: [url])
             }
         }
+        .sheet(item: $favoriteDraft) { draft in
+            LNBrowserFavoriteEditor(draft: draft) { saved in
+                favorites.update(saved)
+            }
+        }
         .accessibilityIdentifier("ln.browser.root")
     }
 
-    // MARK: 地址栏
+    // MARK: 地址栏（导航栏内）
 
     private var addressBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(ReadingTheme.ink.opacity(0.4))
                 .accessibilityHidden(true)
 
@@ -158,8 +265,9 @@ struct LNBrowserView: View {
                     addressFocused = true
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 15))
+                        .font(.system(size: 14))
                         .foregroundStyle(ReadingTheme.ink.opacity(0.3))
+                        .frame(width: 22, height: 22)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("清空地址栏")
@@ -173,22 +281,19 @@ struct LNBrowserView: View {
                 }
             } label: {
                 Image(systemName: model.isLoading ? "xmark" : "arrow.clockwise")
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(ReadingTheme.ink.opacity(model.hasLoadedOnce ? 0.7 : 0.25))
-                    .frame(width: 28, height: 28)
+                    .frame(width: 22, height: 22)
             }
             .buttonStyle(.plain)
             .disabled(!model.hasLoadedOnce)
             .accessibilityLabel(model.isLoading ? "停止加载" : "刷新")
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 6)
-        .frame(height: 44)
+        .padding(.horizontal, 10)
+        .frame(height: 36)
         .background(ReadingTheme.groupedCanvas,
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(ReadingTheme.canvas)
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: 底部工具栏
@@ -234,28 +339,40 @@ struct LNBrowserView: View {
         .accessibilityLabel(label)
     }
 
-    // MARK: 起始页
+    // MARK: 起始页（自定义收藏网址）
 
-    private var startPage: some View {
+    private var favoritesPage: some View {
         ScrollView {
-            VStack(spacing: 14) {
-                Image(systemName: "safari")
-                    .font(.system(size: 46, weight: .light))
-                    .foregroundStyle(ReadingTheme.accent.opacity(0.85))
-                    .padding(.top, 72)
-                    .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("收藏网址")
+                        .font(.headline)
+                        .foregroundStyle(ReadingTheme.ink.opacity(0.85))
+                    Spacer()
+                    if !favorites.items.isEmpty {
+                        Button(favoriteEditMode ? "完成" : "编辑") {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                favoriteEditMode.toggle()
+                            }
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(ReadingTheme.accent)
+                        .accessibilityLabel(favoriteEditMode ? "结束编辑收藏" : "编辑收藏")
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
 
-                Text("网页浏览器")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(ReadingTheme.ink)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14, alignment: .topLeading), count: 4),
+                          alignment: .leading,
+                          spacing: 18) {
+                    ForEach(favorites.items) { item in
+                        favoriteTile(item)
+                    }
+                    addFavoriteTile
+                }
+                .padding(.horizontal, 20)
 
-                Text("在上方输入网址或搜索词，回车即可打开")
-                    .font(.subheadline)
-                    .foregroundStyle(ReadingTheme.ink.opacity(0.5))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-
-                // 不在渲染时预读剪贴板（iOS 16+ 会弹「允许粘贴」），点击时才读
                 Button {
                     addressFocused = false
                     guard let clipboard = UIPasteboard.general.string,
@@ -278,37 +395,109 @@ struct LNBrowserView: View {
                                 in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 24)
-                .padding(.top, 10)
+                .padding(.horizontal, 20)
+                .padding(.top, 6)
                 .accessibilityLabel("粘贴并打开剪贴板中的链接")
 
-                HStack(spacing: 10) {
-                    startChip("Bing 搜索", "https://www.bing.com")
-                    startChip("百度", "https://www.baidu.com")
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 4)
+                Text("在地址栏输入网址或搜索词，回车即可打开。长按收藏可编辑或删除。")
+                    .font(.caption)
+                    .foregroundStyle(ReadingTheme.ink.opacity(0.4))
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 24)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(ReadingTheme.canvas)
     }
 
-    private func startChip(_ title: String, _ urlString: String) -> some View {
+    private func favoriteTile(_ item: LNBrowserFavorite) -> some View {
+        ZStack(alignment: .topTrailing) {
+            Button {
+                if favoriteEditMode {
+                    favoriteDraft = item
+                } else {
+                    open(item)
+                }
+            } label: {
+                VStack(spacing: 7) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(ReadingTheme.groupedCanvas)
+                            .frame(width: 56, height: 56)
+                        Text(item.badge)
+                            .font(.system(size: 22, weight: .semibold, design: .rounded))
+                            .foregroundStyle(ReadingTheme.accent)
+                    }
+                    Text(item.displayTitle)
+                        .font(.caption)
+                        .foregroundStyle(ReadingTheme.ink.opacity(0.75))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
+                Button {
+                    favoriteDraft = item
+                } label: {
+                    Label("编辑", systemImage: "pencil")
+                }
+                Button(role: .destructive) {
+                    favorites.remove(id: item.id)
+                } label: {
+                    Label("删除", systemImage: "trash")
+                }
+            }
+            .accessibilityLabel("打开 \(item.displayTitle)")
+
+            if favoriteEditMode {
+                Button {
+                    favorites.remove(id: item.id)
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 18))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, Color.red)
+                }
+                .buttonStyle(.plain)
+                .offset(x: 6, y: -6)
+                .accessibilityLabel("删除 \(item.displayTitle)")
+            }
+        }
+    }
+
+    private var addFavoriteTile: some View {
         Button {
-            addressFocused = false
-            addressText = urlString
-            model.load(urlString)
+            favoriteDraft = LNBrowserFavorite(title: "", urlString: "")
         } label: {
-            Text(title)
-                .font(.subheadline)
-                .foregroundStyle(ReadingTheme.ink.opacity(0.8))
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background(ReadingTheme.groupedCanvas,
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            VStack(spacing: 7) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(ReadingTheme.ink.opacity(0.18),
+                                      style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                        .frame(width: 56, height: 56)
+                    Image(systemName: "plus")
+                        .font(.system(size: 19, weight: .light))
+                        .foregroundStyle(ReadingTheme.ink.opacity(0.4))
+                }
+                Text("添加")
+                    .font(.caption)
+                    .foregroundStyle(ReadingTheme.ink.opacity(0.45))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("打开 \(title)")
+        .accessibilityLabel("添加收藏网址")
+    }
+
+    private func open(_ item: LNBrowserFavorite) {
+        addressFocused = false
+        let target = item.resolvedURLString
+        addressText = target
+        model.load(target)
     }
 
     // MARK: 错误页
@@ -518,6 +707,67 @@ struct LNBrowserWebHost: UIViewRepresentable {
                 top = presented
             }
             return top
+        }
+    }
+}
+
+// MARK: - 收藏编辑
+
+private struct LNBrowserFavoriteEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    let draft: LNBrowserFavorite
+    let onSave: (LNBrowserFavorite) -> Void
+
+    @State private var title: String
+    @State private var urlString: String
+
+    init(draft: LNBrowserFavorite, onSave: @escaping (LNBrowserFavorite) -> Void) {
+        self.draft = draft
+        self.onSave = onSave
+        _title = State(initialValue: draft.title)
+        _urlString = State(initialValue: draft.urlString)
+    }
+
+    private var isNew: Bool {
+        draft.title.isEmpty && draft.urlString.isEmpty
+    }
+
+    private var trimmedURL: String {
+        urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        ReadingNavigationStack {
+            Form {
+                Section {
+                    TextField("名称（可留空）", text: $title)
+                        .accessibilityLabel("收藏名称")
+                    TextField("网址，例如 www.example.com", text: $urlString)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .accessibilityLabel("收藏网址")
+                } footer: {
+                    Text("没写 https:// 会自动补上；名称留空时显示域名。")
+                }
+            }
+            .navigationTitle(isNew ? "添加收藏" : "编辑收藏")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        var item = draft
+                        item.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                        item.urlString = trimmedURL
+                        onSave(item)
+                        dismiss()
+                    }
+                    .disabled(trimmedURL.isEmpty)
+                }
+            }
         }
     }
 }

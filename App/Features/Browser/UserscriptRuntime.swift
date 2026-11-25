@@ -155,7 +155,19 @@ final class LNUserscriptRuntime: NSObject, WKScriptMessageHandler {
         };
 
         // ===== 用户脚本正文 =====
+        // 包一层 try：脚本顶层代码抛错时整段静默死掉，用户只会看到「控件没出来」，
+        // 这里把错误回传给原生，脚本详情页能直接看到原因。
+        try {
         \(script.code)
+        __lnPost({op:'loaded', script:__lnId});
+        } catch (__lnErr) {
+          try {
+            var __lnMsg = '';
+            try { __lnMsg = String(__lnErr && (__lnErr.stack || __lnErr.message) || __lnErr); }
+            catch (e2) { __lnMsg = '[无法读取错误信息]'; }
+            __lnPost({op:'error', script:__lnId, message:__lnMsg});
+          } catch (e) {}
+        }
         })();
         """
     }
@@ -193,11 +205,37 @@ final class LNUserscriptRuntime: NSObject, WKScriptMessageHandler {
             break
 
         case "log":
-            if let text = body["message"] as? String { print("[userscript] \(text)") }
+            if let text = body["message"] as? String {
+                print("[userscript] \(text)")
+                if let id = scriptID {
+                    LNUserscriptLog.shared.record(scriptID: id, name: name(for: id), message: text, isError: false)
+                }
+            }
+
+        case "loaded":
+            if let id = scriptID {
+                LNUserscriptLog.shared.record(scriptID: id, name: name(for: id),
+                                              message: "已注入并执行（\(host)）", isError: false)
+            }
+
+        case "error":
+            if let id = scriptID {
+                let text = body["message"] as? String ?? "未知错误"
+                LNUserscriptLog.shared.record(scriptID: id, name: name(for: id),
+                                              message: text, isError: true)
+            }
 
         default:
             break
         }
+    }
+
+    private var host: String {
+        webView?.url?.host ?? "当前页面"
+    }
+
+    private func name(for scriptID: UUID) -> String {
+        store.scripts.first(where: { $0.id == scriptID })?.name ?? "脚本"
     }
 
     /// 代替页面发请求：WKWebView 里的 fetch 受同源策略限制，

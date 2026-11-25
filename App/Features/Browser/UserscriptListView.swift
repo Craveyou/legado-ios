@@ -8,6 +8,7 @@ struct LNUserscriptListView: View {
     @ObservedObject private var store = LNUserscriptStore.shared
 
     @State private var showsImportSheet = false
+    @State private var showsLog = false
     @State private var detailScript: LNUserscript?
     @State private var pendingDelete: LNUserscript?
     @State private var toast: String?
@@ -48,6 +49,12 @@ struct LNUserscriptListView: View {
                     } label: {
                         Label("粘贴文本 / 从网址导入", systemImage: "square.and.pencil")
                     }
+                    Divider()
+                    Button {
+                        showsLog = true
+                    } label: {
+                        Label("运行日志", systemImage: "text.alignleft")
+                    }
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -58,6 +65,9 @@ struct LNUserscriptListView: View {
             LNUserscriptImportSheet { message in
                 showToast(message)
             }
+        }
+        .sheet(isPresented: $showsLog) {
+            LNUserscriptLogView()
         }
         .sheet(item: $detailScript) { script in
             LNUserscriptDetailView(script: script, store: store)
@@ -451,6 +461,7 @@ private struct LNUserscriptImportSheet: View {
 private struct LNUserscriptDetailView: View {
     let script: LNUserscript
     @ObservedObject var store: LNUserscriptStore
+    @ObservedObject private var log = LNUserscriptLog.shared
 
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDelete = false
@@ -465,6 +476,7 @@ private struct LNUserscriptDetailView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     header
                     metaSection
+                    runLogSection
                     codeSection
                 }
                 .padding(20)
@@ -539,6 +551,42 @@ private struct LNUserscriptDetailView: View {
                 Text("未声明 @match / @include，脚本不会被执行")
                     .font(.caption)
                     .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    /// 这台设备上该脚本最近的运行记录（注入成功 / 顶层抛错都能看到）
+    private var runLogSection: some View {
+        let entries = log.entries(for: current.id)
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("运行日志")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(ReadingTheme.ink.opacity(0.7))
+            if entries.isEmpty {
+                Text("还没有记录。打开一个匹配的网页后，这里会显示脚本是否注入成功。")
+                    .font(.caption)
+                    .foregroundStyle(ReadingTheme.ink.opacity(0.5))
+            } else {
+                ForEach(entries.prefix(6)) { entry in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Image(systemName: entry.isError ? "exclamationmark.triangle.fill" : "checkmark.circle")
+                                .font(.caption2)
+                                .foregroundStyle(entry.isError ? .orange : .green)
+                            Text(entry.date, style: .time)
+                                .font(.caption2)
+                                .foregroundStyle(ReadingTheme.ink.opacity(0.4))
+                        }
+                        Text(entry.message)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(ReadingTheme.ink.opacity(entry.isError ? 0.85 : 0.65))
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .background(ReadingTheme.groupedCanvas,
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
             }
         }
     }
@@ -628,5 +676,110 @@ final class LNUserscriptFilePicker: NSObject, UIDocumentPickerDelegate {
             top = presented
         }
         return top
+    }
+}
+
+// MARK: - 运行日志
+
+struct LNUserscriptLogEntry: Identifiable {
+    let id = UUID()
+    let date: Date
+    let scriptID: UUID
+    let scriptName: String
+    let message: String
+    let isError: Bool
+}
+
+/// 脚本注入与报错的运行日志（内存里最多留 100 条，不落盘）。
+/// 用途：脚本「注入了但控件没出来」时，这里能直接看到是顶层代码抛错还是压根没跑。
+@MainActor
+final class LNUserscriptLog: ObservableObject {
+    static let shared = LNUserscriptLog()
+
+    @Published private(set) var entries: [LNUserscriptLogEntry] = []
+    private let limit = 100
+
+    func record(scriptID: UUID, name: String, message: String, isError: Bool) {
+        let trimmed = message.count > 1500 ? String(message.prefix(1500)) + "…" : message
+        entries.insert(LNUserscriptLogEntry(date: Date(),
+                                            scriptID: scriptID,
+                                            scriptName: name,
+                                            message: trimmed,
+                                            isError: isError),
+                       at: 0)
+        if entries.count > limit {
+            entries.removeLast(entries.count - limit)
+        }
+    }
+
+    func entries(for scriptID: UUID) -> [LNUserscriptLogEntry] {
+        entries.filter { $0.scriptID == scriptID }
+    }
+
+    func clear() { entries.removeAll() }
+}
+
+struct LNUserscriptLogView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var log = LNUserscriptLog.shared
+
+    var body: some View {
+        ReadingNavigationStack {
+            Group {
+                if log.entries.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "text.alignleft")
+                            .font(.system(size: 40, weight: .light))
+                            .foregroundStyle(ReadingTheme.ink.opacity(0.3))
+                            .accessibilityHidden(true)
+                        Text("还没有运行记录")
+                            .font(.headline)
+                            .foregroundStyle(ReadingTheme.ink.opacity(0.7))
+                        Text("打开一个匹配脚本的网页后，这里会显示脚本是否注入成功、以及抛了什么错。")
+                            .font(.footnote)
+                            .foregroundStyle(ReadingTheme.ink.opacity(0.5))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 36)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(log.entries) { entry in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Image(systemName: entry.isError ? "exclamationmark.triangle.fill" : "checkmark.circle")
+                                    .font(.caption)
+                                    .foregroundStyle(entry.isError ? .orange : .green)
+                                Text(entry.scriptName)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(ReadingTheme.ink.opacity(0.8))
+                                    .lineLimit(1)
+                                Spacer(minLength: 8)
+                                Text(entry.date, style: .time)
+                                    .font(.caption2)
+                                    .foregroundStyle(ReadingTheme.ink.opacity(0.4))
+                            }
+                            Text(entry.message)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(ReadingTheme.ink.opacity(entry.isError ? 0.85 : 0.6))
+                                .textSelection(.enabled)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .background(ReadingTheme.canvas.ignoresSafeArea())
+            .navigationTitle("运行日志")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("清空") { log.clear() }
+                        .disabled(log.entries.isEmpty)
+                }
+            }
+        }
     }
 }
