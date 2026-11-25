@@ -11,13 +11,13 @@
 ![iOS 15+](https://img.shields.io/badge/iOS-15%2B-315C50)
 ![Swift](https://img.shields.io/badge/Swift-F05138?logo=swift&logoColor=white)
 [![GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue)](LICENSE)
-[![TestFlight 公测](https://img.shields.io/badge/TestFlight-Beta-0D96F6?logo=apple&logoColor=white)](https://testflight.apple.com/join/RSmhQ9Xn)
+[![GitHub Release](https://img.shields.io/badge/Release-b77-315C50?logo=github)](https://github.com/Craveyou/legado-ios/releases)
 
-[下载安装](#下载安装) · [主要功能](#主要功能) · [应用截图](#应用截图) · [书源说明](#书源说明) · [问题反馈](https://github.com/Aminark/legado-ios/issues)
+[下载安装](#下载安装) · [主要功能](#主要功能) · [应用截图](#应用截图) · [书源说明](#书源说明) · [问题反馈](https://github.com/Craveyou/legado-ios/issues)
 
 </div>
 
-小浣熊阅读是一款 iOS 阅读器，由 [Aminark](https://github.com/Aminark) 维护，优先兼容阅读书源。希望从导入书源、搜索书籍到打开阅读，都能方便、顺手一些。
+小浣熊阅读是一款 iOS 阅读器，优先兼容阅读书源，希望从导入书源、搜索书籍到打开阅读都能方便、顺手一些。本项目是 [Aminark/legado-ios](https://github.com/Aminark/legado-ios) 的个人定制分支，在书源阅读之外补充了 KSPlayer 全格式视频播放、本地漫画 / 整理 / 短剧与 NAS 书库、以及带油猴脚本的内嵌浏览器。
 
 项目仍在边用边改，书源兼容和阅读体验会继续完善。
 
@@ -27,22 +27,22 @@
 
 支持 **iOS / iPadOS 15.0 及以上**。
 
-### TestFlight 公测（推荐）
+**[前往 GitHub Releases 下载](https://github.com/Craveyou/legado-ios/releases)** — 当前版本 **b77**（0.1.15 build 77）。请下载附件中的 `.ipa` 文件；`Source code` 是源码压缩包。**未签名 IPA 无法在 iOS 上点击直装**，需经以下任一方式安装：
 
-**[点击加入小浣熊阅读 TestFlight 公测](https://testflight.apple.com/join/RSmhQ9Xn)**
+### 方式一：AltStore 订阅源（推荐，安装后可直接在手机端更新）
 
-1. 在 iPhone 或 iPad 上安装 Apple 官方的 [TestFlight](https://apps.apple.com/app/testflight/id899247664)。
-2. 使用同一台设备打开上方公测链接，按页面提示接受邀请并安装「小浣熊阅读」。
-3. 后续可在 TestFlight 中获取测试版更新，也欢迎通过 TestFlight 或 [GitHub Issues](https://github.com/Aminark/legado-ios/issues) 反馈问题。
+1. 在 iPhone 上安装 **AltStore（Classic）**，并在电脑上运行 AltServer（见 [AltStore 文档](https://faq.altstore.io/)）。
+2. 在 AltStore 的 **Sources → Add Source** 中填入源地址：
+   `https://raw.githubusercontent.com/Craveyou/legado-ios/main/altstore.json`
+3. 添加后即可在 AltStore 中找到「小浣熊阅读」并安装；后续 Releases 发新版本时，在 AltStore 里点更新即可，无需再到这里下载 IPA。
 
-通过 TestFlight 安装无需自行签名。
+> 免费 Apple 账号签发的 App 通常 7 天到期，AltStore 会在与 AltServer 同 WiFi 时自动后台刷新。订阅源只是分发入口，签名仍走你自己的 Apple 账号。
 
-### IPA 与源码安装
+### 方式二：手动侧载
 
-**IPA 下载见 [GitHub Releases](https://github.com/Aminark/legado-ios/releases)，需要自行签名安装。** 请下载附件中的 `.ipa` 文件；`Source code` 是源码压缩包。
+下载 Release 里的 `.ipa` 后，用 **Sideloadly** 或 **AltStore** 从电脑刷入；免费 Apple 账号自签有效期通常 7 天，到期需重新签名，见 [Apple 说明](https://developer.apple.com/help/account/basics/about-your-developer-account#enable-a-personal-team-in-xcode)。
 
-- **自行签名安装**：使用自己的签名工具安装 IPA。免费 Apple 账号自签的描述文件有效期通常为 7 天，到期需要重新签名安装，见 [Apple 说明](https://developer.apple.com/help/account/basics/about-your-developer-account#enable-a-personal-team-in-xcode)。
-- **巨魔安装**：已支持 [TrollStore](https://github.com/opa334/TrollStore) 的设备可自行尝试安装，具体系统兼容范围以 TrollStore 项目说明为准。
+- **巨魔安装**：已支持 [TrollStore](https://github.com/opa334/TrollStore) 的设备可自行尝试，兼容范围以项目说明为准。
 - **源码构建**：有 macOS 和 Xcode 的朋友也可以自行编译，见 [开发指南](docs/DEVELOPMENT.md)。
 
 这个项目主要是自己使用和分享，没有盈利计划。
@@ -59,6 +59,9 @@
 | 语音朗读 | 系统朗读与 HTTP TTS 配置 |
 | 阅读工具 | 替换净化、阅读记录、时长统计和缓存管理 |
 | RSS 订阅 | 订阅源管理与内容阅读 |
+| 本地与 NAS 书库 | 本地漫画 / 整理 / 短剧分类；飞牛 NAS 四类目录（SMB 内网、WebDAV 外网），目录可配置、可浏览点选 |
+| 视频播放 | KSPlayer 内核全格式播放（含 mkv），自动全屏、进度续播、外挂字幕、长按倍速 |
+| 内嵌浏览器 | 发现页进入，支持油猴脚本导入 / GM API / 运行日志诊断，移动端 UA 与桌面版切换 |
 
 搜书速度是我比较在意的部分，目前做了并发调度、有效书源优先和结果缓存等优化。实际体验仍会受到网络和书源网站响应的影响。
 
@@ -124,7 +127,7 @@ EPUB 导入入口：书架 → 更多 → 本地书，或「我的 → 文件管
 
 ## 反馈与贡献
 
-遇到问题或有功能建议，欢迎提交 [Issue](https://github.com/Aminark/legado-ios/issues)。反馈时请附上应用版本、系统版本、设备和复现步骤；书源问题尽量提供最小规则。
+遇到问题或有功能建议，欢迎提交 [Issue](https://github.com/Craveyou/legado-ios/issues)。反馈时请附上应用版本、系统版本、设备和复现步骤；书源问题尽量提供最小规则。
 
 请先去掉日志和规则中的账号、Cookie、Token 等个人信息。欢迎提交代码、兼容用例和文档改进，具体见 [贡献指南](CONTRIBUTING.md)。
 
