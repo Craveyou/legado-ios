@@ -9,7 +9,7 @@ struct ExploreView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
-                placeholder
+                features
             }
             .frame(maxWidth: 620)
             .frame(maxWidth: .infinity)
@@ -48,22 +48,63 @@ struct ExploreView: View {
         .padding(.bottom, 26)
     }
 
-    private var placeholder: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "sparkles.rectangle.stack")
-                .font(.system(size: 44, weight: .light))
+    private var features: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NavigationLink {
+                LNBrowserView()
+            } label: {
+                featureCard(symbol: "safari",
+                            title: "网页浏览器",
+                            subtitle: "输入网址或搜索词，直接浏览网页")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("网页浏览器，输入网址或搜索词直接浏览")
+            .accessibilityIdentifier("explore.browser")
+
+            Text("更多功能陆续加入")
+                .font(.caption)
                 .foregroundStyle(ReadingTheme.ink.opacity(0.35))
-                .accessibilityHidden(true)
-            Text("敬请期待")
-                .font(.headline)
-                .foregroundStyle(ReadingTheme.ink.opacity(0.75))
-            Text("这里即将呈现全新的发现体验")
-                .font(.subheadline)
-                .foregroundStyle(ReadingTheme.ink.opacity(0.5))
-                .multilineTextAlignment(.center)
+                .padding(.top, 6)
+                .padding(.leading, 4)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 120)
-        .accessibilityElement(children: .combine)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 32)
+    }
+
+    private func featureCard(symbol: String, title: String, subtitle: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: symbol)
+                .font(.system(size: 24, weight: .regular))
+                .foregroundStyle(ReadingTheme.accent)
+                .frame(width: 44, height: 44)
+                .background(ReadingTheme.canvas,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(ReadingTheme.ink)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(ReadingTheme.ink.opacity(0.5))
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(ReadingTheme.ink.opacity(0.25))
+                .accessibilityHidden(true)
+        }
+        .padding(16)
+        .background(ReadingTheme.groupedCanvas,
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(ReadingTheme.separator.opacity(0.4), lineWidth: 0.5)
+        }
+        .contentShape(Rectangle())
     }
 }

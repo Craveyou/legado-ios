@@ -49,6 +49,7 @@
 		A10000000000000000000009 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A /* DesignSystem.swift */; };
 		A1000000000000000000000A /* DemoContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B /* DemoContent.swift */; };
 		A1000000000000000000000B /* ExploreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* ExploreView.swift */; };
+		B10000000000000000000001 /* BrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* BrowserView.swift */; };
 		N10000000000000000000001 /* NASView.swift in Sources */ = {isa = PBXBuildFile; fileRef = N20000000000000000000001 /* NASView.swift */; };
 		E71000000000000000000001 /* ExploreSourceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E72000000000000000000001 /* ExploreSourceViewModel.swift */; };
 		A1000000000000000000000C /* SourceDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* SourceDebugView.swift */; };
@@ -199,6 +200,7 @@
 		A2000000000000000000000A /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		A2000000000000000000000B /* DemoContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoContent.swift; sourceTree = "<group>"; };
 		A2000000000000000000000C /* ExploreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExploreView.swift; sourceTree = "<group>"; };
+		B20000000000000000000001 /* BrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserView.swift; sourceTree = "<group>"; };
 		N20000000000000000000001 /* NASView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NASView.swift; sourceTree = "<group>"; };
 		E72000000000000000000001 /* ExploreSourceViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExploreSourceViewModel.swift; sourceTree = "<group>"; };
 		A2000000000000000000000D /* SourceDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceDebugView.swift; sourceTree = "<group>"; };
@@ -387,6 +389,7 @@
 				A30000000000000000000004 /* Books Feature */,
 				A30000000000000000000005 /* Reader Feature */,
 				A30000000000000000000006 /* Explore Feature */,
+				B30000000000000000000001 /* Browser Feature */,
 				N30000000000000000000001 /* NAS Feature */,
 				A30000000000000000000007 /* Rules Feature */,
 				A30000000000000000000008 /* Activity Feature */,
@@ -452,6 +455,14 @@
 				E72000000000000000000001 /* ExploreSourceViewModel.swift */,
 			);
 			path = Features/Explore;
+			sourceTree = "<group>";
+		};
+		B30000000000000000000001 /* Browser Feature */ = {
+			isa = PBXGroup;
+			children = (
+				B20000000000000000000001 /* BrowserView.swift */,
+			);
+			path = Features/Browser;
 			sourceTree = "<group>";
 		};
 		N30000000000000000000001 /* NAS Feature */ = {
@@ -821,6 +832,7 @@
 				A10000000000000000000009 /* DesignSystem.swift in Sources */,
 				A1000000000000000000000A /* DemoContent.swift in Sources */,
 				A1000000000000000000000B /* ExploreView.swift in Sources */,
+				B10000000000000000000001 /* BrowserView.swift in Sources */,
 				N10000000000000000000001 /* NASView.swift in Sources */,
 				E71000000000000000000001 /* ExploreSourceViewModel.swift in Sources */,
 				A1000000000000000000000C /* SourceDebugView.swift in Sources */,
@@ -983,7 +995,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 66;
+				CURRENT_PROJECT_VERSION = 67;
 				DEVELOPMENT_ASSET_PATHS = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
@@ -1004,7 +1016,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 66;
+				CURRENT_PROJECT_VERSION = 67;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
