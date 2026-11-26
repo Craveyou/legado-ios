@@ -11,7 +11,7 @@
 ![iOS 15+](https://img.shields.io/badge/iOS-15%2B-315C50)
 ![Swift](https://img.shields.io/badge/Swift-F05138?logo=swift&logoColor=white)
 [![GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue)](LICENSE)
-[![GitHub Release](https://img.shields.io/badge/Release-b79-315C50?logo=github)](https://github.com/Craveyou/legado-ios/releases)
+[![GitHub Release](https://img.shields.io/badge/Release-b80-315C50?logo=github)](https://github.com/Craveyou/legado-ios/releases)
 
 [下载安装](#下载安装) · [主要功能](#主要功能) · [应用截图](#应用截图) · [书源说明](#书源说明) · [问题反馈](https://github.com/Craveyou/legado-ios/issues)
 
@@ -27,7 +27,7 @@
 
 支持 **iOS / iPadOS 15.0 及以上**。
 
-**[前往 GitHub Releases 下载](https://github.com/Craveyou/legado-ios/releases)** — 当前版本 **b79**（0.1.15 build 79）。请下载附件中的 `.ipa` 文件；`Source code` 是源码压缩包。**未签名 IPA 无法在 iOS 上点击直装**，需经以下任一方式安装：
+**[前往 GitHub Releases 下载](https://github.com/Craveyou/legado-ios/releases)** — 当前版本 **b80**（0.1.15 build 80）。请下载附件中的 `.ipa` 文件；`Source code` 是源码压缩包。**未签名 IPA 无法在 iOS 上点击直装**，需经以下任一方式安装：
 
 ### 方式一：AltStore 订阅源（推荐，安装后可直接在手机端更新）
 
@@ -59,7 +59,7 @@
 | 语音朗读 | 系统朗读与 HTTP TTS 配置 |
 | 阅读工具 | 替换净化、阅读记录、时长统计和缓存管理 |
 | RSS 订阅 | 订阅源管理与内容阅读 |
-| 本地与 NAS 书库 | 本地漫画 / 整理 / 短剧分类；飞牛 NAS 四类目录（SMB 内网、WebDAV 外网），目录可配置、可浏览点选 |
+| 本地与 NAS 书库 | 本地漫画 / 整理 / 短剧分类；飞牛 NAS 四类目录（SMB 内网、WebDAV 外网），目录可配置、可浏览点选；电影用同名图片做封面墙（竖版 3 列 / 横版 2 列） |
 | 视频播放 | KSPlayer 内核全格式播放（含 mkv），自动全屏、进度续播、外挂字幕、长按倍速 |
 | 内嵌浏览器 | 发现页进入，支持油猴脚本导入 / GM API / 运行日志诊断，移动端 UA 与桌面版切换 |
 
