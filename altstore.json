@@ -21,11 +21,11 @@
       "versions": [
         {
           "version": "0.1.15",
-          "buildVersion": "81",
+          "buildVersion": "82",
           "date": "2026-11-26",
-          "localizedDescription": "build 81：电影封面磁盘持久缓存（二次进页面零下载秒出图）；海报卡片新增文件大小与时长显示。包含 b80 海报墙、b79 首帧封面与自动全屏续播、b78 占位图、b77 NAS WebDAV 路径映射修复。",
-          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b81/Legado-xiaohuanxiong-video-b81-covercache-unsigned.ipa",
-          "size": 28605371,
+          "localizedDescription": "build 82：电影海报支持长按删除（带确认弹窗，连本地封面缓存一起清理）；时长磁盘缓存，二次进页面零探测即时显示。包含 b81 封面磁盘缓存、b80 海报墙、b79 首帧封面/自动全屏续播等全部既有功能。",
+          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b82/Legado-xiaohuanxiong-video-b82-delete-duration-unsigned.ipa",
+          "size": 28615325,
           "minOSVersion": "15.0"
         }
       ],
