@@ -21,11 +21,11 @@
       "versions": [
         {
           "version": "0.1.15",
-          "buildVersion": "78",
+          "buildVersion": "79",
           "date": "2026-11-26",
-          "localizedDescription": "build 78：视频未播放前显示占位图（深色渐变 + 播放图标），不再整块黑屏；播放开始时 KSPlayer 自动淡出露出画面。包含 b77 的 NAS WebDAV 路径映射修复与全部既有功能。",
-          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b78/Legado-xiaohuanxiong-video-b78-placeholder-unsigned.ipa",
-          "size": 28583039,
+          "localizedDescription": "build 79：播放前显示视频真实首帧封面（抽帧失败回退渐变图）；点击播放后自动全屏并续播，不再卡住。包含 b78 的占位图、b77 的 NAS WebDAV 路径映射修复与全部既有功能。",
+          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b79/Legado-xiaohuanxiong-video-b79-firstframe-unsigned.ipa",
+          "size": 28587244,
           "minOSVersion": "15.0"
         }
       ],
