@@ -64,13 +64,12 @@ struct RootTabView: View {
                 .tag(Tab.bookshelf)
 
             ReadingNavigationStack {
-                LNCategoryView(source: LNRoot.localSource(),
-                               title: "本地")
+                LNCollectionTabView(source: LNRoot.localSource())
             }
-                .tabItem { Label("本地", systemImage: selection == .local ? "folder.fill" : "folder").environment(\.symbolVariants, .none) }
+                .tabItem { Label("合集", systemImage: selection == .local ? "square.grid.2x2.fill" : "square.grid.2x2").environment(\.symbolVariants, .none) }
                 .tag(Tab.local)
 
-            ReadingNavigationStack { NASView() }
+            ReadingNavigationStack { NASCollectionTabView() }
                 .tabItem { Label("NAS", systemImage: "externaldrive").environment(\.symbolVariants, .none) }
                 .tag(Tab.nas)
 
@@ -169,20 +168,8 @@ private struct BookshelfView: View {
                                 .padding(.top, min(80, max(24, geometry.size.height * 0.075)))
                         } else {
                             if let book = recentBook {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    Text("继续阅读")
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(.secondary)
-                                    NavigationLink {
-                                        BookshelfBookDestination(book: book, source: sources.sources.first { $0.bookSourceUrl == book.origin })
-                                    } label: {
-                                        ContinueReadingCard(book: book)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .accessibilityLabel("继续阅读，\(book.name)，\(BookReadingPresentation.position(book))")
-                                    .accessibilityIdentifier("bookshelf.continue")
-                                }
-                                .padding(.bottom, 30)
+                                ContinueReadingSection(book: book,
+                                                       source: sources.sources.first { $0.bookSourceUrl == book.origin })
                             }
                             bookshelfSummary
                             if bookshelfLayout.hasPrefix("grid") {
@@ -505,6 +492,131 @@ private struct BookshelfBookDestination: View {
         } else {
             BookshelfReadView(book: book, source: source)
         }
+    }
+}
+
+/// 「继续阅读」栏：书架 / 合集 / NAS 三个 Tab 共用（b87）。
+/// 数据同源——书架里最近开始读的书，点卡片直接回到上次位置。
+private struct ContinueReadingSection: View {
+    let book: Book
+    let source: BookSource?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("继续阅读")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+            NavigationLink {
+                BookshelfBookDestination(book: book, source: source)
+            } label: {
+                ContinueReadingCard(book: book)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("继续阅读，\(book.name)，\(BookReadingPresentation.position(book))")
+            .accessibilityIdentifier("bookshelf.continue")
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 30)
+    }
+}
+
+/// 合集 Tab：本地漫画 / 整理 / 短剧的分类入口（原「本地」Tab 更名，b87）。
+private struct LNCollectionTabView: View {
+    @EnvironmentObject private var library: BookLibraryModel
+    @EnvironmentObject private var sources: SourceLibraryModel
+    let source: any LNLibrarySource
+
+    private var recentBook: Book? {
+        library.books.filter(BookReadingPresentation.hasStarted)
+            .sorted { $0.durChapterTime > $1.durChapterTime }
+            .first
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ReadingPageHeader(title: "合集", subtitle: "本地漫画 / 整理 / 短剧，集中入口") {
+                    EmptyView()
+                }
+                if let book = recentBook {
+                    ContinueReadingSection(book: book,
+                                           source: sources.sources.first { $0.bookSourceUrl == book.origin })
+                }
+                LNCategoryGrid(source: source, categories: LNCategory.localCases, showsCounts: true)
+            }
+            .padding(.bottom, 30)
+        }
+        .background(ReadingTheme.canvas.ignoresSafeArea())
+        .navigationBarHidden(true)
+        .accessibilityIdentifier("ln.collection.scroll")
+    }
+}
+
+/// NAS Tab：四类合集入口（漫画 / 整理 / 短剧 / 电影）+ 继续阅读。
+/// NAS 连接管理移到「我的 → NAS 连接」；这里直接用第一条连接，
+/// 没有连接时空态引导过去（b87）。
+private struct NASCollectionTabView: View {
+    @StateObject private var store = FeiniuConnectionStore()
+    @EnvironmentObject private var library: BookLibraryModel
+    @EnvironmentObject private var sources: SourceLibraryModel
+
+    private var recentBook: Book? {
+        library.books.filter(BookReadingPresentation.hasStarted)
+            .sorted { $0.durChapterTime > $1.durChapterTime }
+            .first
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ReadingPageHeader(title: "NAS", subtitle: "网络存储，随处阅读") {
+                    EmptyView()
+                }
+                if let book = recentBook {
+                    ContinueReadingSection(book: book,
+                                           source: sources.sources.first { $0.bookSourceUrl == book.origin })
+                }
+                if let connection = store.connections.first {
+                    // 多条连接时用第一条；连接管理（含增删改）在「我的 → NAS 连接」
+                    LNCategoryGrid(source: LNNASSource(connection: connection, rootPath: "/"),
+                                   categories: LNCategory.allCases, showsCounts: false)
+                } else {
+                    noConnectionHint
+                }
+            }
+            .padding(.bottom, 30)
+        }
+        .background(ReadingTheme.canvas.ignoresSafeArea())
+        .navigationBarHidden(true)
+        .accessibilityIdentifier("nas.collection.scroll")
+    }
+
+    private var noConnectionHint: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "externaldrive.connected.to.line.below")
+                .font(.system(size: 44, weight: .light))
+                .foregroundStyle(ReadingTheme.ink.opacity(0.35))
+                .accessibilityHidden(true)
+            Text("还没有 NAS 连接")
+                .font(.headline)
+                .foregroundStyle(ReadingTheme.ink.opacity(0.75))
+            Text("到「我的 → NAS 连接」添加飞牛 NAS，漫画 / 整理 / 短剧 / 电影就地阅读与播放。")
+                .font(.subheadline)
+                .foregroundStyle(ReadingTheme.ink.opacity(0.5))
+                .multilineTextAlignment(.center)
+            NavigationLink {
+                NASView()
+            } label: {
+                Label("去添加 NAS 连接", systemImage: "plus.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(ReadingTheme.accentFill)
+            .padding(.top, 6)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 32)
+        .padding(.top, 70)
     }
 }
 
@@ -912,6 +1024,9 @@ struct SettingsView: View {
                         readingSection
                         rulesSection
                         settingSection("文件与存储") {
+                            settingLink("NAS 连接", icon: "externaldrive") {
+                                NASView()
+                            }
                             settingLink("文件管理", icon: "folder", showsSeparator: false) {
                                 FileManagementView()
                             }

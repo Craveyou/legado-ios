@@ -14,40 +14,50 @@ struct LNCategoryView: View {
     /// NAS 首屏不预统计（三类各一次远端探测会拖慢进入），进入分类时再加载
     var showsCounts: Bool = true
 
-    @State private var counts: [LNCategory: Int] = [:]
-    @State private var isLoading = false
-
     var body: some View {
         ScrollView {
-            // 水平内边距统一交给 header 内部的 24：
-            // 之前外层又叠了 20，标题被多推右 20pt，与 NAS tab 错位、也和卡片不对齐。
             VStack(alignment: .leading, spacing: 0) {
                 ReadingPageHeader(title: title, subtitle: subtitle) {
-                    // 与 NAS tab 头部保持一致（NAS 用 + 添加连接）；
                     // 本地书库通过「文件」App 放书，这里用空操作占位保持视觉对称。
                     EmptyView()
                 }
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 14),
-                                    GridItem(.flexible(), spacing: 14)], spacing: 14) {
-                    ForEach(categories) { cat in
-                        NavigationLink {
-                            destination(for: cat)
-                        } label: {
-                            card(cat)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("ln.category.\(cat.rawValue)")
-                    }
-                }
-                .padding(.horizontal, 24)
+                LNCategoryGrid(source: source, categories: categories, showsCounts: showsCounts)
             }
             .padding(.bottom, 30)
         }
         .background(ReadingTheme.canvas.ignoresSafeArea())
         // 与 NAS tab 一致：隐藏导航栏标题，只保留页面内大标题
         .navigationBarHidden(true)
-        .refreshable { if showsCounts { await loadCounts() } }
+    }
+
+
+}
+
+/// 分类卡片网格：分类页 / 合集首页 / NAS 首页共用（b87）。
+/// 电影是平铺视频列表（点开即播），其余三类是「书 → 章」结构。
+struct LNCategoryGrid: View {
+    let source: any LNLibrarySource
+    var categories: [LNCategory] = LNCategory.localCases
+    var showsCounts: Bool = true
+
+    @State private var counts: [LNCategory: Int] = [:]
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 14),
+                            GridItem(.flexible(), spacing: 14)], spacing: 14) {
+            ForEach(categories) { cat in
+                NavigationLink {
+                    destination(for: cat)
+                } label: {
+                    card(cat)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("ln.category.\(cat.rawValue)")
+            }
+        }
+        .padding(.horizontal, 24)
         .task { if showsCounts { await loadCounts() } }
+        .refreshable { if showsCounts { await loadCounts() } }
     }
 
     /// 电影是平铺视频列表（点开即播），其余三类是「书 → 章」结构
@@ -84,8 +94,6 @@ struct LNCategoryView: View {
     }
 
     private func loadCounts() async {
-        isLoading = true
-        defer { isLoading = false }
         var next: [LNCategory: Int] = [:]
         for cat in categories {
             let path = source.categoryRoot(cat)
@@ -102,8 +110,8 @@ struct LNCategoryView: View {
             next[cat] = books?.count ?? 0
         }
         counts = next
-    }
-}
+    }}
+
 
 /// 电影海报墙：分类目录下直接是视频文件，同名图片做封面，点开即播。
 /// 与其余三类不同——电影没有「书 → 章」结构，所以不走 LNScanner/LNBookListView。

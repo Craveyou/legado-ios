@@ -1185,7 +1185,9 @@ struct NASView: View {
             .frame(maxWidth: .infinity)
         }
         .background(ReadingTheme.canvas.ignoresSafeArea())
-        .navigationBarHidden(true)
+        // 从「我的 → NAS 连接」push 进入：保留系统导航栏以显示返回键
+        .navigationTitle("NAS 连接")
+        .navigationBarTitleDisplayMode(.inline)
         .task(id: store.connections.map(\.id)) {
             await refreshLinks()
         }
@@ -1211,7 +1213,7 @@ struct NASView: View {
     }
 
     private var header: some View {
-        ReadingPageHeader(title: "NAS", subtitle: "网络存储，随处阅读") {
+        ReadingPageHeader(title: "飞牛 NAS", subtitle: "内网 SMB / 外网 WebDAV，自动切换") {
             Button {
                 showingAdd = true
             } label: {
