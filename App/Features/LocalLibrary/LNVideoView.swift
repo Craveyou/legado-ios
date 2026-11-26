@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 @preconcurrency import KSPlayer
 
@@ -232,6 +233,45 @@ struct LNVideoView: View {
         duration = nil
         url = newURL
         options = newOptions
+        box.coverImage = nil
+        Task { await loadCoverImage(url: newURL, options: newOptions) }
+    }
+
+    /// 播放前抓一帧真实画面当封面，替换掉渐变占位图。
+    ///
+    /// 用 AVAssetImageGenerator 而不是 KSPlayer 的 thumbnailImageAtCurrentTime：
+    /// 后者要等播放器 ready，而封面恰恰要在 ready 之前就有。
+    /// 认证头从 `options.avOptions` 取（appendHeader 会同时写这里），
+    /// 所以 NAS WebDAV 流式 URL 也能抓到；本地 fileURL 直接可抓。
+    /// 失败不打扰用户——保留渐变占位图即可。
+    private func loadCoverImage(url: URL, options: KSOptions) async {
+        let headers = options.avOptions[AVURLAssetHTTPHeaderFieldsKey] as? [String: String]
+        guard let image = await Self.generateCover(url: url, headers: headers) else { return }
+        box.coverImage = image
+        // 宿主已创建就直接换图；未创建则由 makeUIView 读 box.coverImage 补上
+        Task { @MainActor in
+            self.box.view?.installPlaceholder(cover: self.box.coverImage)
+        }
+    }
+
+    /// 在指定时间点抓一帧，后台执行（AVAssetImageGenerator 自带队列，不阻塞主线程）。
+    /// 取 0.1 秒而非 0：有些视频第 0 帧全黑。
+    private static func generateCover(url: URL, headers: [String: String]?) async -> UIImage? {
+        let assetOptions: [String: Any]? = headers.map { [AVURLAssetHTTPHeaderFieldsKey: $0] }
+        let asset = AVURLAsset(url: url, options: assetOptions)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 640, height: 360)
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        let time = CMTime(value: 1, timescale: 10) // 0.1s
+        do {
+            let cgImage = try await generator.image(at: time).image
+            return UIImage(cgImage: cgImage)
+        } catch {
+            // 某些格式（如部分 mkv 编码）AVFoundation 抽帧失败：静默回退渐变占位图
+            return nil
+        }
     }
 
     /// 播放出错：流式失败自动回退整文件下载；下载模式再失败才亮错误卡片
@@ -298,6 +338,9 @@ final class LNKSPlayerBox: NSObject, PlayerControllerDelegate {
     /// 存在盒子里而不是只存在 @State 上：宿主视图可能晚于字幕下载完成才创建，
     /// 创建/更新时都要能拿到这份列表补挂。
     var subtitleURLs: [URL] = []
+    /// 异步抓到的视频首帧（播放前封面），nil 时用内置渐变占位图。
+    /// 同样放盒子里：抓图完成可能早于/晚于宿主视图创建，两边都要能读到。
+    var coverImage: UIImage?
 
     func playerController(state _: KSPlayerState) {}
     func playerController(currentTime _: TimeInterval, totalTime: TimeInterval) {
@@ -379,12 +422,17 @@ final class LNPlayerView: IOSVideoPlayerView {
     /// 这里画一张深色渐变 + 播放图标的占位图塞进去，播放开始时 KSPlayer 自己淡出，
     /// 不用我们监听状态手工管显隐，也不影响控制条。
     ///
-    /// 无文件名参数：图片缓存稳定（不随每集变化重建），文件名本来就在画面下方显示。
-    func installPlaceholder() {
-        let image = Self.makePlaceholderImage()
+    /// 传入已抓到的真实首帧则显示它；否则用渐变占位图。
+    /// 文件名不画进图里（画面下方已有），保证图片可复用、不随每集重建。
+    func installPlaceholder(cover: UIImage? = nil) {
+        // 只在播放开始前装封面；ready 之后 KSPlayer 已把 maskImageView 淡出，
+        // 此时若 updateUIView 再调本方法把 alpha 设回 1，播放中会突然盖出一张封面图。
+        if let state = playerLayer?.state, state != .initialized, state != .preparing {
+            return
+        }
         maskImageView.contentMode = .scaleAspectFill
         maskImageView.clipsToBounds = true
-        maskImageView.image = image
+        maskImageView.image = cover ?? Self.makePlaceholderImage()
         maskImageView.alpha = 1
     }
 
@@ -547,7 +595,7 @@ struct LNKSPlayerHost: UIViewRepresentable {
         let playerView = LNPlayerView()
         playerView.configure()
         playerView.set(url: url, options: options)
-        playerView.installPlaceholder()
+        playerView.installPlaceholder(cover: box.coverImage)
         playerView.delegate = box
         playerView.playTimeDidChange = { _, total in
             guard total > 0, total.isFinite else { return }
@@ -565,7 +613,11 @@ struct LNKSPlayerHost: UIViewRepresentable {
         // 流式失败回退下载、换章等场景：URL 变了就重设（KSPlayer 内部会重建 layer）
         if playerView.playerLayer?.url != url {
             playerView.set(url: url, options: options)
-            playerView.installPlaceholder()
+            playerView.installPlaceholder(cover: box.coverImage)
+        }
+        // 首帧异步抓到晚于宿主创建时，补上真实封面（=== 按对象身份去重，避免重复安装）
+        if let cover = box.coverImage, playerView.maskImageView.image !== cover {
+            playerView.installPlaceholder(cover: cover)
         }
         // 字幕晚到（下载完成）时补挂；attachSubtitles 内部按 subtitleID 去重，幂等
         playerView.attachSubtitles(box.subtitleURLs)
@@ -614,16 +666,23 @@ struct LNKSFullscreenHost: UIViewRepresentable {
         playerView.configure()
         playerView.autoFullscreenOnPlay = false
         playerView.set(url: url, options: options)
-        playerView.installPlaceholder()
+        playerView.installPlaceholder(cover: box.coverImage)
         // 全屏实例自己就是 layer 的 delegate（状态回调直接驱动自己的控制条）
         playerView.delegate = box
         playerView.playTimeDidChange = { _, total in
             guard total > 0, total.isFinite else { return }
             box.onDuration?(total)
         }
-        // 续播：未 ready 时 KSPlayer 会把 seek 存起来，ready 后自动 seek + 播放
+        // 续播：未 ready 时 KSPlayer 把 seek 存进 shouldSeekTo / isAutoPlay，
+        // 等 readyToPlay 回调再消费（seek 到 startTime 并按 autoPlay 播放）。
+        // 关键：全局 KSOptions.isAutoPlay=false，KSPlayerLayer 初始化时不会
+        // prepareToPlay()，所以那些存起来的标志永远等不到 ready —— 表现为
+        // 全屏后卡住不动。autoplay=true 时必须显式触发准备流程。
         if let layer = playerView.playerLayer {
             layer.seek(time: max(0, startTime), autoPlay: autoplay) { _ in }
+            if autoplay {
+                layer.prepareToPlay()
+            }
         }
         // NAS 同目录字幕（独立实例要单独挂一份）
         playerView.attachSubtitles(box.subtitleURLs)
@@ -635,6 +694,10 @@ struct LNKSFullscreenHost: UIViewRepresentable {
     func updateUIView(_ view: LNPlayerView, context _: Context) {
         // 字幕可能在进入全屏后才下载完 → 补挂（幂等）
         view.attachSubtitles(box.subtitleURLs)
+        // 首帧异步抓到晚于全屏创建时补上（=== 按对象身份去重）
+        if let cover = box.coverImage, view.maskImageView.image !== cover {
+            view.installPlaceholder(cover: cover)
+        }
     }
 
     static func dismantleUIView(_ playerView: LNPlayerView, coordinator: Coordinator) {
