@@ -25,7 +25,7 @@
           "date": "2026-11-26",
           "localizedDescription": "build 88（0.2.1）：修复书架「继续阅读」栏被双重缩进挤窄的问题；合集 / NAS / 书架三个 Tab 各自独立的阅读记录——合集显示本地漫画/整理/短剧最近阅读、NAS 显示 NAS 书籍与电影最近观看，点卡片直接回到上次章节或影片；订阅源图标换新地址。包含 b87 全部功能。",
           "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b88/Legado-panda-reader-b88-reading-records-unsigned.ipa",
-          "size": 27542725,
+          "size": 27560997,
           "minOSVersion": "15.0"
         }
       ],
