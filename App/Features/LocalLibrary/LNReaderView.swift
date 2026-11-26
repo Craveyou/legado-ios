@@ -803,13 +803,25 @@ private final class LNPagingController<Page: View>: UIViewController, UIScrollVi
 
     // MARK: - UIScrollViewDelegate
 
-    func scrollViewWillBeginDragging(_: UIScrollView) {
+    /// 拖拽期间达到过的最大 offsetX：末页「再左滑退出」靠它判定。
+    /// 之前放在 willEndDragging 看目标落点，但正常翻页式左滑是缓慢拖拽释放，
+    /// 橡皮筋越界量和速度都够不到阈值，永远不触发。
+    private var peakOffsetX: CGFloat = 0
+    /// 本次拖拽是否已请求过关闭（防重复 dismiss）
+    private var dismissRequested = false
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         isUserInteracting = true
+        dismissRequested = false
+        peakOffsetX = scrollView.contentOffset.x
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let width = scrollView.bounds.width
         guard width > 0 else { return }
+        if isUserInteracting {
+            peakOffsetX = max(peakOffsetX, scrollView.contentOffset.x)
+        }
         let page = min(max(Int((scrollView.contentOffset.x / width).rounded()), 0), pageCount - 1)
         guard page != currentIndex else { return }
         currentIndex = page
@@ -818,28 +830,30 @@ private final class LNPagingController<Page: View>: UIViewController, UIScrollVi
     }
 
     func scrollViewWillEndDragging(_ scrollView: UIScrollView,
-                                   withVelocity velocity: CGPoint,
+                                   withVelocity _: CGPoint,
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         let width = scrollView.bounds.width
         guard width > 0 else { return }
-        // 在最后一张继续左滑（内容往右露黑边）：越界够多、或越界不多但甩动够快，就退出大图
-        // velocity 单位是 points/秒，快速甩动通常 > 1000
-        let lastX = CGFloat(pageCount - 1) * width
-        let overshoot = targetContentOffset.pointee.x - lastX
-        if currentIndex == pageCount - 1,
-           overshoot > width * 0.25 || (overshoot > width * 0.08 && velocity.x < -300) {
-            targetContentOffset.pointee.x = lastX
-            onDismissRequest?()
-            return
-        }
         let page = (targetContentOffset.pointee.x / width).rounded()
         let clamped = min(max(page, 0), CGFloat(pageCount - 1))
         targetContentOffset.pointee.x = clamped * width
     }
 
-    func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
-        guard !decelerate else { return }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         isUserInteracting = false
+        defer { peakOffsetX = 0 }
+        // 末页「再左滑退出」：只要这次拖拽曾把内容拉过末页右缘 15% 页宽，
+        // 无论快甩还是慢拖都算退出意图（翻页落点吸附恰好停在末页，不会误触发）
+        let width = scrollView.bounds.width
+        if width > 0, currentIndex == pageCount - 1, !dismissRequested {
+            let lastX = CGFloat(pageCount - 1) * width
+            if peakOffsetX > lastX + width * 0.15 {
+                dismissRequested = true
+                onDismissRequest?()
+                return
+            }
+        }
+        guard !decelerate else { return }
         snapToCurrentPage()
     }
 
