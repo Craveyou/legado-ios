@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// 发现页占位骨架。原书源发现功能已移除，此处保留 tab 与基础版式，
-/// 后续可直接在此文件中替换为新的功能页面。
+/// 浏览器页：内嵌浏览器与油猴脚本的入口（b86 起发现 Tab 更名为「浏览器」，
+/// 网络书源链路已整体移除，书源搜索/换源/缓存/RSS 不再存在）。
 struct ExploreView: View {
     @Environment(\.colorScheme) private var colorScheme
 
@@ -21,25 +21,10 @@ struct ExploreView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Text("发现")
-                    .font(.largeTitle.bold())
-                    .accessibilityAddTraits(.isHeader)
-                Spacer()
-                NavigationLink { SearchView() } label: {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 22, weight: .regular))
-                        .frame(width: 44, height: 44)
-                        .background {
-                            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                                .fill(ReadingTheme.groupedCanvas.opacity(0.75))
-                        }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("搜索")
-                .accessibilityIdentifier("explore.search")
-            }
-            Text("下一本好书，在这里遇见")
+            Text("浏览器")
+                .font(.largeTitle.bold())
+                .accessibilityAddTraits(.isHeader)
+            Text("网页浏览与油猴脚本")
                 .font(.subheadline)
                 .foregroundStyle(ReadingTheme.ink.opacity(0.55))
         }
@@ -61,11 +46,15 @@ struct ExploreView: View {
             .accessibilityLabel("网页浏览器，输入网址或搜索词直接浏览")
             .accessibilityIdentifier("explore.browser")
 
-            Text("更多功能陆续加入")
-                .font(.caption)
-                .foregroundStyle(ReadingTheme.ink.opacity(0.35))
-                .padding(.top, 6)
-                .padding(.leading, 4)
+            NavigationLink {
+                LNUserscriptListView()
+            } label: {
+                featureCard(symbol: "app.badge.checkmark",
+                            title: "油猴脚本",
+                            subtitle: "管理已导入的用户脚本")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("油猴脚本管理")
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 32)

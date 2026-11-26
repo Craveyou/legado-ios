@@ -2,10 +2,8 @@ import SwiftUI
 
 struct BookDetailView: View {
     @EnvironmentObject private var library: BookLibraryModel
-    @EnvironmentObject private var sourceLibrary: SourceLibraryModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @StateObject private var model: BookDetailViewModel
-    @State private var showsSourceSwitch = false
     @State private var showsRemoveConfirmation = false
     @State private var showsTableOfContents = false
 
@@ -45,8 +43,6 @@ struct BookDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button("换源", systemImage: "arrow.triangle.2.circlepath") { showsSourceSwitch = true }
-                        .disabled(sourceLibrary.sources.filter(\.enabled).count < 2)
                     Button("允许更新", systemImage: model.book.canUpdate ? "checkmark" : "circle") {
                         model.toggleCanUpdate()
                         Task { await saveCurrentBook() }
@@ -56,7 +52,7 @@ struct BookDetailView: View {
                             let requestedBook = model.book
                             let oldURL = model.book.bookUrl
                             let wasInLibrary = library.contains(model.book)
-                            await model.refresh(sources: sourceLibrary.sources, persistDirectory: false, commitSourceSwitch: { report in
+                            await model.refresh(sources: [], persistDirectory: false, commitSourceSwitch: { report in
                                 guard wasInLibrary else { return true }
                                 return await library.commitSourceSwitch(oldBookURL: oldURL, report: report)
                             }, commitPreparedUpdate: { report in
@@ -66,13 +62,6 @@ struct BookDetailView: View {
                             if wasInLibrary, oldURL == model.book.bookUrl, model.state == .ready {
                                 await saveLoadedDirectory()
                             }
-                        }
-                    }
-                    if model.source.loginUrl?.isEmpty == false {
-                        NavigationLink {
-                            SourceLoginView(source: model.source)
-                        } label: {
-                            Label("登录", systemImage: "person.badge.key")
                         }
                     }
                     ReadingShareLink(item: model.book.bookUrl) {
@@ -93,14 +82,14 @@ struct BookDetailView: View {
             }
         }
         .task {
-            model.restoreSourceAfterReading(from: library.books, sources: sourceLibrary.sources)
+            model.restoreSourceAfterReading(from: library.books, sources: [])
             let oldURL = model.book.bookUrl
             let shouldPersistUpdate = library.contains(model.book)
             if let stored = library.books.first(where: { $0.bookUrl == oldURL }) {
-                model.restoreLibraryBook(from: stored, sources: sourceLibrary.sources)
+                model.restoreLibraryBook(from: stored, sources: [])
             }
             let requestedBook = model.book
-            await model.load(sources: sourceLibrary.sources, persistDirectory: false, runPreUpdateScript: shouldPersistUpdate, commitSourceSwitch: { report in
+            await model.load(sources: [], persistDirectory: false, runPreUpdateScript: shouldPersistUpdate, commitSourceSwitch: { report in
                 guard shouldPersistUpdate else { return true }
                 return await library.commitSourceSwitch(oldBookURL: oldURL, report: report)
             }, commitPreparedUpdate: { report in
@@ -114,18 +103,6 @@ struct BookDetailView: View {
                 }
                 if oldURL == model.book.bookUrl, model.state == .ready {
                     await saveLoadedDirectory()
-                }
-            }
-        }
-        .sheet(isPresented: $showsSourceSwitch) {
-            ReadingNavigationStack {
-                SourceSwitchView(book: model.book, sources: sourceLibrary.sources) { report, source in
-                    let oldURL = model.book.bookUrl
-                    if library.contains(model.book) {
-                        guard await library.commitSourceSwitch(oldBookURL: oldURL, report: report) else { return false }
-                    }
-                    model.applySourceSwitch(report, source: source)
-                    return true
                 }
             }
         }

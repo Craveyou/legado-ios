@@ -107,7 +107,9 @@ struct ReadingHistoryView: View {
                 source: sources.sources.first(where: { $0.bookSourceUrl == book.origin })
             )
         } else {
-            SearchView(initialKeyword: record.bookName)
+            ReadingUnavailableView("书籍已不在书架",
+                                   systemImage: "book.closed",
+                                   description: Text("《\(record.bookName)》可能已被移除，无法继续阅读。"))
         }
     }
 

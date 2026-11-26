@@ -108,13 +108,6 @@ struct FileManagementView: View {
             }
             if tab == 0 { localFilesSection }
             else { cachedBooksSection }
-            if !selecting {
-                Section {
-                    NavigationLink { CacheManagementView() } label: {
-                        Label("章节缓存与空间清理", systemImage: "internaldrive")
-                    }
-                }
-            }
         }
         .listStyle(.insetGrouped)
         .environment(\.editMode, .constant(selecting ? .active : .inactive))

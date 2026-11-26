@@ -35,9 +35,6 @@ struct OtherSettingsView: View {
                 NavigationLink {
                     NetworkSettingsView()
                 } label: { Label("网络与缓存设置", systemImage: "network") }
-                NavigationLink {
-                    CacheManagementView()
-                } label: { Label("章节缓存管理", systemImage: "internaldrive") }
                 Button("清理网页缓存", systemImage: "globe") { maintenance = .webCache }
                 Button("整理数据库", systemImage: "externaldrive.badge.checkmark") { maintenance = .database }
             }

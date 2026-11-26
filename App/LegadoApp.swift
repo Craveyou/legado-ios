@@ -7,12 +7,9 @@ struct LegadoApp: App {
     @StateObject private var bookLibrary: BookLibraryModel
     @StateObject private var replaceRuleLibrary: ReplaceRuleLibraryModel
     @StateObject private var readingActivity: ReadingActivityModel
-    @StateObject private var rssLibrary: RSSLibraryModel
-    @StateObject private var ruleSubscriptions: RuleSubscriptionModel
 
     init() {
         AppDiagnostics.shared.start()
-        SourceWebViewExecutorRegistry.shared.register(WKSourceWebViewExecutor())
         let demo = ProcessInfo.processInfo.arguments.contains("-uiDemo")
         _sourceLibrary = StateObject(wrappedValue: demo
             ? SourceLibraryModel.demo(sources: DemoContent.sources)
@@ -26,8 +23,6 @@ struct LegadoApp: App {
         _readingActivity = StateObject(wrappedValue: demo
             ? ReadingActivityModel.demo(bookmarks: DemoContent.bookmarks, records: DemoContent.readRecords)
             : ReadingActivityModel.live())
-        _rssLibrary = StateObject(wrappedValue: RSSLibraryModel.live())
-        _ruleSubscriptions = StateObject(wrappedValue: RuleSubscriptionModel())
     }
 
     var body: some Scene {
@@ -37,8 +32,6 @@ struct LegadoApp: App {
                 .environmentObject(bookLibrary)
                 .environmentObject(replaceRuleLibrary)
                 .environmentObject(readingActivity)
-                .environmentObject(rssLibrary)
-                .environmentObject(ruleSubscriptions)
                 .task {
                     await sourceLibrary.load()
                     if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "-uiAutomationImportURL"),
@@ -52,12 +45,9 @@ struct LegadoApp: App {
                     await bookLibrary.load()
                     await replaceRuleLibrary.load()
                     await readingActivity.load()
-                    await rssLibrary.load()
-                    await ruleSubscriptions.load()
                     if UserDefaults.standard.bool(forKey: "auto_refresh") {
                         await bookLibrary.checkForUpdates(sources: sourceLibrary.sources, onlyRead: UserDefaults.standard.bool(forKey: "onlyUpdateRead"))
                     }
-                    await ruleSubscriptions.checkAutomaticUpdates(bookSources: sourceLibrary, rssSources: rssLibrary, replaceRules: replaceRuleLibrary)
                 }
                 .onOpenURL { url in
                     Task {

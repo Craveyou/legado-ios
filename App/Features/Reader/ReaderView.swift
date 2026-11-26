@@ -9,12 +9,10 @@ struct ReaderView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject private var library: BookLibraryModel
-    @EnvironmentObject private var sourceLibrary: SourceLibraryModel
     @EnvironmentObject private var replaceRules: ReplaceRuleLibraryModel
     @EnvironmentObject private var activity: ReadingActivityModel
     @StateObject private var model: ReaderViewModel
     private var book: Book { model.book }
-    @State private var sourceSwitchBook: Book?
     @State private var showsTableOfContents = false
     @State private var showsBookmarks = false
     @State private var illustrationChapter: BookChapter?
@@ -262,24 +260,6 @@ struct ReaderView: View {
         .sheet(isPresented: $showsAutoReadControls) { autoReadControls }
         .sheet(isPresented: $showsStyleControls) { styleControls }
         .sheet(isPresented: $showsContentSearch) { contentSearchSheet }
-        .sheet(item: $sourceSwitchBook) { currentBook in
-            ReadingNavigationStack {
-                SourceSwitchView(book: currentBook, sources: sourceLibrary.sources) { report, source in
-                    await progressSaveTask?.value
-                    if library.contains(book) {
-                        guard await library.commitSourceSwitch(oldBookURL: book.bookUrl, report: report) else { return false }
-                    }
-                    await activity.endReading(book)
-                    model.applySourceSwitch(report, source: source)
-                    readerPosition = report.book.durChapterPos
-                    readerJumpPosition = nil
-                    readerPageRanges = []
-                    readerRenderRevision &+= 1
-                    activity.beginReading(report.book)
-                    return true
-                }
-            }
-        }
         .sheet(isPresented: $showsReplaceRules) {
             ReadingNavigationStack { ReplaceRuleManagementView() }
         }
@@ -465,21 +445,8 @@ struct ReaderView: View {
             }
             .disabled(model.isLoading || model.scrollRetries.contains(model.currentIndex))
             .accessibilityIdentifier("reader.retryChapter")
-            if model.canEditContent {
-                Button(action: openSourceSwitch) {
-                    Label("换源", systemImage: "arrow.triangle.2.circlepath")
-                }
-                .accessibilityIdentifier("reader.failureChangeSource")
-            }
         }
         .readingSecondaryButtonStyle()
-    }
-
-    private func openSourceSwitch() {
-        isAutoReading = false
-        saveProgress(immediate: true)
-        showsReaderMenu = false
-        sourceSwitchBook = model.bookForSourceSwitch(position: readerPosition)
     }
 
     @ViewBuilder private var readerSurface: some View {
@@ -880,11 +847,6 @@ struct ReaderView: View {
                 readerChromeAction("list.bullet", "目录") {
                     showsReaderMenu = false
                     showsTableOfContents = true
-                }
-                if model.canEditContent {
-                    readerChromeAction("arrow.triangle.2.circlepath", "换源", action: openSourceSwitch)
-                    .accessibilityIdentifier("reader.changeSource")
-                    .accessibilityValue(book.originName)
                 }
                 readerChromeAction("textformat.size", "外观") {
                     showsReaderMenu = false

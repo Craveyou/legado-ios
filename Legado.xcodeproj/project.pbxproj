@@ -40,8 +40,6 @@
 		A10000000000000000000001 /* LegadoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* LegadoApp.swift */; };
 		A10000000000000000000002 /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* RootTabView.swift */; };
 		A10000000000000000000003 /* SourceLibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* SourceLibraryModel.swift */; };
-		A10000000000000000000004 /* SourceManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* SourceManagementView.swift */; };
-		A10000000000000000000005 /* SearchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* SearchViewModel.swift */; };
 		A10000000000000000000006 /* BookLibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* BookLibraryModel.swift */; };
 		A10000000000000000000007 /* BookDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* BookDetailView.swift */; };
 		A10000000000000000000008 /* ReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* ReaderView.swift */; };
@@ -56,23 +54,11 @@
 		B10000000000000000000001 /* BrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* BrowserView.swift */; };
 		N10000000000000000000001 /* NASView.swift in Sources */ = {isa = PBXBuildFile; fileRef = N20000000000000000000001 /* NASView.swift */; };
 		E71000000000000000000001 /* ExploreSourceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E72000000000000000000001 /* ExploreSourceViewModel.swift */; };
-		A1000000000000000000000C /* SourceDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* SourceDebugView.swift */; };
-		A1000000000000000000000D /* SourceLoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* SourceLoginView.swift */; };
 		A1000000000000000000000E /* LocalBookDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* LocalBookDetailView.swift */; };
 		A1000000000000000000000F /* ReplaceRuleLibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* ReplaceRuleLibraryModel.swift */; };
 		A10000000000000000000010 /* ReplaceRuleManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* ReplaceRuleManagementView.swift */; };
 		A10000000000000000000011 /* ReadingActivityModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* ReadingActivityModel.swift */; };
 		A10000000000000000000012 /* ReadingHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* ReadingHistoryView.swift */; };
-		A10000000000000000000013 /* CacheManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* CacheManagementView.swift */; };
-		A10000000000000000000014 /* SourceSwitchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* SourceSwitchView.swift */; };
-		A10000000000000000000015 /* RSSLibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* RSSLibraryModel.swift */; };
-		A10000000000000000000016 /* RSSViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* RSSViews.swift */; };
-		A10000000000000000000017 /* RSSSourceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* RSSSourceEditorView.swift */; };
-		A10000000000000000000018 /* RSSWebReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* RSSWebReaderView.swift */; };
-		A10000000000000000000019 /* RSSSourceDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* RSSSourceDebugView.swift */; };
-		A1000000000000000000001A /* RSSAddBookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* RSSAddBookView.swift */; };
-		A1000000000000000000001B /* RuleSubscriptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000022 /* RuleSubscriptionView.swift */; };
-		F91000000000000000000001 /* RuleSubscriptionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F92000000000000000000001 /* RuleSubscriptionModel.swift */; };
 		A1000000000000000000001C /* TxtTocRuleManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* TxtTocRuleManagementView.swift */; };
 		A1000000000000000000001D /* txtTocRule.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* txtTocRule.json */; };
 		A10000000000000000000020 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000027 /* Assets.xcassets */; };
@@ -139,7 +125,6 @@
 		F11000000000000000000002 /* LocalFileService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F21000000000000000000002 /* LocalFileService.swift */; };
 		F11000000000000000000003 /* BookSourceEditorDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = F21000000000000000000003 /* BookSourceEditorDocument.swift */; };
 		F11000000000000000000004 /* RuleImportInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = F21000000000000000000004 /* RuleImportInput.swift */; };
-		AA1100000000000000000001 /* SourceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2200000000000000000001; };
 		AA1100000000000000000002 /* ReplaceRuleEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2200000000000000000002; };
 		AA1100000000000000000003 /* SyntaxCodeEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2200000000000000000003; };
 		AA1100000000000000000004 /* QRCodeImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2200000000000000000004; };
@@ -194,9 +179,7 @@
 		A20000000000000000000001 /* LegadoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegadoApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* SourceLibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceLibraryModel.swift; sourceTree = "<group>"; };
-		A20000000000000000000004 /* SourceManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceManagementView.swift; sourceTree = "<group>"; };
 		A20000000000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A20000000000000000000006 /* SearchViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchViewModel.swift; sourceTree = "<group>"; };
 		A20000000000000000000007 /* BookLibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookLibraryModel.swift; sourceTree = "<group>"; };
 		A20000000000000000000008 /* BookDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookDetailView.swift; sourceTree = "<group>"; };
 		A20000000000000000000009 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
@@ -211,23 +194,11 @@
 		B20000000000000000000001 /* BrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserView.swift; sourceTree = "<group>"; };
 		N20000000000000000000001 /* NASView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NASView.swift; sourceTree = "<group>"; };
 		E72000000000000000000001 /* ExploreSourceViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExploreSourceViewModel.swift; sourceTree = "<group>"; };
-		A2000000000000000000000D /* SourceDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceDebugView.swift; sourceTree = "<group>"; };
-		A2000000000000000000000E /* SourceLoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceLoginView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000F /* LocalBookDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalBookDetailView.swift; sourceTree = "<group>"; };
 		A20000000000000000000010 /* ReplaceRuleLibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplaceRuleLibraryModel.swift; sourceTree = "<group>"; };
 		A20000000000000000000011 /* ReplaceRuleManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplaceRuleManagementView.swift; sourceTree = "<group>"; };
 		A20000000000000000000012 /* ReadingActivityModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingActivityModel.swift; sourceTree = "<group>"; };
 		A20000000000000000000013 /* ReadingHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingHistoryView.swift; sourceTree = "<group>"; };
-		A20000000000000000000014 /* CacheManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheManagementView.swift; sourceTree = "<group>"; };
-		A20000000000000000000015 /* SourceSwitchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceSwitchView.swift; sourceTree = "<group>"; };
-		A20000000000000000000016 /* RSSLibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSSLibraryModel.swift; sourceTree = "<group>"; };
-		A20000000000000000000017 /* RSSViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSSViews.swift; sourceTree = "<group>"; };
-		A20000000000000000000018 /* RSSSourceEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSSSourceEditorView.swift; sourceTree = "<group>"; };
-		A20000000000000000000019 /* RSSWebReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSSWebReaderView.swift; sourceTree = "<group>"; };
-		A20000000000000000000020 /* RSSSourceDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSSSourceDebugView.swift; sourceTree = "<group>"; };
-		A20000000000000000000021 /* RSSAddBookView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSSAddBookView.swift; sourceTree = "<group>"; };
-		A20000000000000000000022 /* RuleSubscriptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuleSubscriptionView.swift; sourceTree = "<group>"; };
-		F92000000000000000000001 /* RuleSubscriptionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuleSubscriptionModel.swift; sourceTree = "<group>"; };
 		A20000000000000000000023 /* TxtTocRuleManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TxtTocRuleManagementView.swift; sourceTree = "<group>"; };
 		A20000000000000000000024 /* txtTocRule.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = txtTocRule.json; path = App/Resources/txtTocRule.json; sourceTree = "<group>"; };
 		A20000000000000000000027 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -295,7 +266,6 @@
 		F21000000000000000000002 /* LocalFileService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFileService.swift; sourceTree = "<group>"; };
 		F21000000000000000000003 /* BookSourceEditorDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookSourceEditorDocument.swift; sourceTree = "<group>"; };
 		F21000000000000000000004 /* RuleImportInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuleImportInput.swift; sourceTree = "<group>"; };
-		AA2200000000000000000001 /* SourceEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Features/Sources/SourceEditorView.swift; sourceTree = SOURCE_ROOT; };
 		AA2200000000000000000002 /* ReplaceRuleEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Features/Rules/ReplaceRuleEditorView.swift; sourceTree = SOURCE_ROOT; };
 		AA2200000000000000000003 /* SyntaxCodeEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Features/Rules/Editor/SyntaxCodeEditor.swift; sourceTree = SOURCE_ROOT; };
 		AA2200000000000000000004 /* QRCodeImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Features/Rules/Editor/QRCodeImportView.swift; sourceTree = SOURCE_ROOT; };
@@ -361,7 +331,6 @@
 		D40000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
-				AA2200000000000000000001 /* SourceEditorView.swift */,
 				AA2200000000000000000002 /* ReplaceRuleEditorView.swift */,
 				AA2200000000000000000003 /* SyntaxCodeEditor.swift */,
 				AA2200000000000000000004 /* QRCodeImportView.swift */,
@@ -412,9 +381,6 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000003 /* SourceLibraryModel.swift */,
-				A20000000000000000000004 /* SourceManagementView.swift */,
-				A2000000000000000000000D /* SourceDebugView.swift */,
-				A2000000000000000000000E /* SourceLoginView.swift */,
 			);
 			path = Features/Sources;
 			sourceTree = "<group>";
@@ -422,7 +388,6 @@
 		A30000000000000000000003 /* Search Feature */ = {
 			isa = PBXGroup;
 			children = (
-				A20000000000000000000006 /* SearchViewModel.swift */,
 			);
 			path = Features/Search;
 			sourceTree = "<group>";
@@ -434,7 +399,6 @@
 				B20000000000000000000028 /* BookDetailViewModel.swift */,
 				B20000000000000000000027 /* BookshelfReadViewModel.swift */,
 				A20000000000000000000008 /* BookDetailView.swift */,
-				A20000000000000000000015 /* SourceSwitchView.swift */,
 				A2000000000000000000000F /* LocalBookDetailView.swift */,
 			);
 			path = Features/Books;
@@ -490,8 +454,6 @@
 			children = (
 				A20000000000000000000010 /* ReplaceRuleLibraryModel.swift */,
 				A20000000000000000000011 /* ReplaceRuleManagementView.swift */,
-				A20000000000000000000022 /* RuleSubscriptionView.swift */,
-				F92000000000000000000001 /* RuleSubscriptionModel.swift */,
 				A20000000000000000000023 /* TxtTocRuleManagementView.swift */,
 			);
 			path = Features/Rules;
@@ -503,7 +465,6 @@
 				F21000000000000000000001 /* FileManagementView.swift */,
 				A20000000000000000000012 /* ReadingActivityModel.swift */,
 				A20000000000000000000013 /* ReadingHistoryView.swift */,
-				A20000000000000000000014 /* CacheManagementView.swift */,
 			);
 			path = Features/Activity;
 			sourceTree = "<group>";
@@ -648,12 +609,6 @@
 		A30000000000000000000009 /* RSS Feature */ = {
 			isa = PBXGroup;
 			children = (
-				A20000000000000000000016 /* RSSLibraryModel.swift */,
-				A20000000000000000000017 /* RSSViews.swift */,
-				A20000000000000000000018 /* RSSSourceEditorView.swift */,
-				A20000000000000000000019 /* RSSWebReaderView.swift */,
-				A20000000000000000000020 /* RSSSourceDebugView.swift */,
-				A20000000000000000000021 /* RSSAddBookView.swift */,
 			);
 			path = Features/RSS;
 			sourceTree = "<group>";
@@ -809,7 +764,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AA1100000000000000000001 /* SourceEditorView.swift in Sources */,
 				AA1100000000000000000002 /* ReplaceRuleEditorView.swift in Sources */,
 				AA1100000000000000000003 /* SyntaxCodeEditor.swift in Sources */,
 				AA1100000000000000000004 /* QRCodeImportView.swift in Sources */,
@@ -825,8 +779,6 @@
 				A10000000000000000000001 /* LegadoApp.swift in Sources */,
 				A10000000000000000000002 /* RootTabView.swift in Sources */,
 				A10000000000000000000003 /* SourceLibraryModel.swift in Sources */,
-				A10000000000000000000004 /* SourceManagementView.swift in Sources */,
-				A10000000000000000000005 /* SearchViewModel.swift in Sources */,
 				A10000000000000000000006 /* BookLibraryModel.swift in Sources */,
 				B10000000000000000000028 /* BookDetailViewModel.swift in Sources */,
 				B10000000000000000000027 /* BookshelfReadViewModel.swift in Sources */,
@@ -851,8 +803,6 @@
 				EA5F00000000000000000004 /* UserscriptListView.swift in Sources */,
 				N10000000000000000000001 /* NASView.swift in Sources */,
 				E71000000000000000000001 /* ExploreSourceViewModel.swift in Sources */,
-				A1000000000000000000000C /* SourceDebugView.swift in Sources */,
-				A1000000000000000000000D /* SourceLoginView.swift in Sources */,
 				A1000000000000000000000E /* LocalBookDetailView.swift in Sources */,
 				A1000000000000000000000F /* ReplaceRuleLibraryModel.swift in Sources */,
 				A10000000000000000000010 /* ReplaceRuleManagementView.swift in Sources */,
@@ -862,16 +812,6 @@
 				F11000000000000000000002 /* LocalFileService.swift in Sources */,
 				F11000000000000000000003 /* BookSourceEditorDocument.swift in Sources */,
 				F11000000000000000000004 /* RuleImportInput.swift in Sources */,
-				A10000000000000000000013 /* CacheManagementView.swift in Sources */,
-				A10000000000000000000014 /* SourceSwitchView.swift in Sources */,
-				A10000000000000000000015 /* RSSLibraryModel.swift in Sources */,
-				A10000000000000000000016 /* RSSViews.swift in Sources */,
-				A10000000000000000000017 /* RSSSourceEditorView.swift in Sources */,
-				A10000000000000000000018 /* RSSWebReaderView.swift in Sources */,
-				A10000000000000000000019 /* RSSSourceDebugView.swift in Sources */,
-				A1000000000000000000001A /* RSSAddBookView.swift in Sources */,
-				A1000000000000000000001B /* RuleSubscriptionView.swift in Sources */,
-				F91000000000000000000001 /* RuleSubscriptionModel.swift in Sources */,
 				A1000000000000000000001C /* TxtTocRuleManagementView.swift in Sources */,
 				C10000000000000000000001 /* BookSource.swift in Sources */,
 				C10000000000000000000002 /* BookSourceRules.swift in Sources */,
@@ -1011,7 +951,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 85;
+				CURRENT_PROJECT_VERSION = 86;
 				DEVELOPMENT_ASSET_PATHS = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
@@ -1032,7 +972,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 85;
+				CURRENT_PROJECT_VERSION = 86;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
