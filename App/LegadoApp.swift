@@ -28,7 +28,6 @@ struct LegadoApp: App {
     var body: some Scene {
         WindowGroup {
             RootTabView()
-                .modifier(PrivacyGateModifier())   // b89：后台遮罩 + 面容 ID 解锁（窗口顶层遮罩）
                 .environmentObject(sourceLibrary)
                 .environmentObject(bookLibrary)
                 .environmentObject(replaceRuleLibrary)
