@@ -20,11 +20,11 @@
       ],
       "versions": [
         {
-          "version": "0.2.2",
-          "buildVersion": "89",
+          "version": "0.2.3",
+          "buildVersion": "90",
           "date": "2026-11-26",
-          "localizedDescription": "build 89（0.2.2）：新增隐私与安全功能——「后台模糊」：切到后台或任务切换器时页面内容被遮挡；「面容 ID / 触控 ID 解锁」：启动和切回前台时需通过面容 ID、触控 ID 或设备密码验证（入口在「我的 → 其他设置 → 隐私与安全」）。包含 b88 全部功能。",
-          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b89/Legado-panda-reader-b89-privacy-lock-unsigned.ipa",
+          "localizedDescription": "build 90（0.2.3）：隐私与安全重做，观感对齐主流 App——后台遮罩改为「离开时界面的毛玻璃快照」（任务切换器里保留页面轮廓、内容不可辨），锁定态中央锁图标 + 轻点解锁，验证通过淡出（入口：我的 → 其他设置 → 隐私与安全）。包含 b89 全部功能。",
+          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b90/Legado-panda-reader-b90-privacy-blur-lock-unsigned.ipa",
           "size": 27572196,
           "minOSVersion": "15.0"
         }

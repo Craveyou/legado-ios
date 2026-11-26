@@ -186,13 +186,14 @@ struct NetworkSettingsView: View {
         } catch { errorMessage = error.localizedDescription }
     }
 }
-
-// MARK: - 隐私与安全（b89）：后台遮罩 + 面容 ID / 触控 ID 解锁
-// 「其他设置 → 隐私与安全」两个开关的实现：
-// - 后台模糊：离开 active（进后台 / 任务切换器 / 下拉通知中心）时盖遮罩，回前台即揭开；
-// - 解锁：遮罩常驻，需通过 LocalAuthentication（面容 / 触控 ID / 设备密码）验证才揭开。
-// 遮罩是 UIWindow 顶层的 UIView——SwiftUI overlay 盖不住全屏 cover（大图预览、
-// 全屏播放器都在更高的 presentation 层），只有 window 层遮罩能保证切换器快照不泄露内容。
+// MARK: - 隐私与安全（b90 重做：对齐主流 App 观感）
+// 视觉：遮罩背景是「离开那一刻界面的毛玻璃快照」——任务切换器里能看到隐约的页面
+// 轮廓，但文字内容被彻底糊掉；不再用纯色 + 大 logo 的启动页样式。
+// - 仅「后台模糊」：毛玻璃快照，无任何浮层，回前台 0.18s 淡出；
+// - 「解锁」开启：毛玻璃之上叠中央锁图标 + 「轻点解锁」，自动弹面容/触控 ID，
+//   验证通过整层淡出；失败/取消则停在锁定页，轻点任意处重试。
+// 遮罩挂在 UIWindow 顶层（SwiftUI overlay 盖不住全屏 cover：大图预览、全屏播放器
+// 都在更高的 presentation 层，只有 window 层遮罩能保证切换器快照不泄露内容）。
 
 /// 遮罩模式：none=未激活；blur=仅后台模糊；locked=等待设备认证。
 enum PrivacyShieldMode {
@@ -221,11 +222,11 @@ final class PrivacyShieldController {
     private init() {}
 
     private var mode: PrivacyShieldMode = .none
-    private var shieldView: UIView?
+    private var shield: PrivacyShieldView?
     private var isAuthenticating = false
     /// 本次 active 周期是否还需要自动弹认证：willResignActive 时置 true，
     /// 认证发起过一次就置 false——认证弹窗本身引起的 active 回调不再重弹，
-    /// 用户取消后改为「点按解锁」手动重试。
+    /// 用户取消后改为「轻点解锁」手动重试。
     private var needsAutoUnlockOnActive = true
     private var onUnlockRequest: (() -> Void)?
 
@@ -264,7 +265,7 @@ final class PrivacyShieldController {
     @MainActor
     func authenticate() async {
         guard mode == .locked, !isAuthenticating else { return }
-        guard lockEnabled else { hide(); return }   // 开关被关掉后遮罩残留的兜底
+        guard lockEnabled else { hide(animated: false); return }   // 开关被关掉后遮罩残留的兜底
         isAuthenticating = true
         defer { isAuthenticating = false }
         let context = LAContext()
@@ -282,26 +283,42 @@ final class PrivacyShieldController {
                 hide()
             }
         } catch {
-            // 用户取消 / 认证失败：保持遮罩，「点按解锁」可手动重试
+            // 用户取消 / 认证失败：保持锁定页，轻点任意处重试
+            shield?.showAuthFailure()
         }
     }
 
     private func show(mode newMode: PrivacyShieldMode) {
         mode = newMode
+        // 已有遮罩（例如认证弹窗引起的二次 resign）：只切换锁定浮层，不重新截图，
+        // 避免背景闪烁、也避免把上一张遮罩截进快照。
+        if let shield {
+            shield.setLocked(newMode == .locked)
+            return
+        }
         guard let window = PrivacyShieldController.topWindow() else { return }
-        shieldView?.removeFromSuperview()
-        let shield = PrivacyShieldView(mode: newMode)
-        shield.unlockHandler = { [weak self] in self?.onUnlockRequest?() }
-        shield.frame = window.bounds
-        shield.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        window.addSubview(shield)
-        shieldView = shield
+        // 构造时就地取 window 快照（此时遮罩尚未加入 window，截不到自己）
+        let view = PrivacyShieldView(window: window, mode: newMode) { [weak self] in
+            self?.onUnlockRequest?()
+        }
+        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        window.addSubview(view)
+        shield = view
     }
 
-    private func hide() {
+    private func hide(animated: Bool = true) {
         mode = .none
-        shieldView?.removeFromSuperview()
-        shieldView = nil
+        guard let shield else { return }
+        self.shield = nil
+        guard animated else {
+            shield.removeFromSuperview()
+            return
+        }
+        UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut]) {
+            shield.alpha = 0
+        } completion: { _ in
+            shield.removeFromSuperview()
+        }
     }
 
     private static func topWindow() -> UIWindow? {
@@ -312,56 +329,102 @@ final class PrivacyShieldController {
     }
 }
 
-/// 遮罩视图：不透明背景 + App 图标，锁定模式带「点按解锁」按钮。
-/// 全遮而非半透明模糊：模糊与锁定态都不给内容留可见度，最稳妥。
+/// 遮罩视图：界面毛玻璃快照 +（锁定态）中央锁图标浮层。
+/// 双层 material 叠加：单层模糊仍能隐约辨认大标题，两层后只剩色块轮廓，
+/// 与微信 / Telegram 任务切换器的观感一致，同时保证文字不可读。
 private final class PrivacyShieldView: UIView {
-    var unlockHandler: (() -> Void)?
+    private var unlockHandler: (() -> Void)?
+    private var lockStack: UIStackView?
+    private let hintLabel = UILabel()
 
-    init(mode: PrivacyShieldMode) {
-        super.init(frame: .zero)
+    init(window: UIWindow, mode: PrivacyShieldMode, unlockHandler: @escaping () -> Void) {
+        super.init(frame: window.bounds)
+        self.unlockHandler = unlockHandler
         backgroundColor = .systemBackground
         accessibilityViewIsModal = true
+        clipsToBounds = true
 
-        let imageView = UIImageView(image: UIImage(named: "BrandIcon"))
-        imageView.contentMode = .scaleAspectFill
-        imageView.layer.cornerRadius = 24
-        imageView.layer.masksToBounds = true
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(imageView)
+        // 1) 当前界面快照做底：切换器里保留页面轮廓（主流观感）
+        if let snapshot = window.snapshotView(afterScreenUpdates: false) {
+            snapshot.frame = bounds
+            snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            addSubview(snapshot)
+        }
 
-        let title = UILabel()
-        title.text = "熊猫阅读"
-        title.font = .systemFont(ofSize: 20, weight: .semibold)
-        title.textColor = .label
-        title.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(title)
+        // 2) 两层毛玻璃把文字糊成不可辨识的色块
+        for style in [UIBlurEffect.Style.systemThickMaterial, UIBlurEffect.Style.systemThinMaterial] {
+            let blur = UIVisualEffectView(effect: UIBlurEffect(style: style))
+            blur.frame = bounds
+            blur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            blur.isUserInteractionEnabled = false
+            addSubview(blur)
+        }
 
-        NSLayoutConstraint.activate([
-            imageView.widthAnchor.constraint(equalToConstant: 96),
-            imageView.heightAnchor.constraint(equalToConstant: 96),
-            imageView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -18),
-            title.centerXAnchor.constraint(equalTo: centerXAnchor),
-            title.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 14),
-        ])
+        // 3) 极轻底色：白底阅读页模糊后也不留文字轮廓
+        let tint = UIView(frame: bounds)
+        tint.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.12)
+        tint.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        tint.isUserInteractionEnabled = false
+        addSubview(tint)
 
         if mode == .locked {
-            let button = UIButton(type: .system)
-            button.setTitle("点按解锁", for: .normal)
-            button.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
-            button.accessibilityLabel = "解锁熊猫阅读"
-            button.translatesAutoresizingMaskIntoConstraints = false
-            button.addAction(UIAction { [weak self] _ in self?.unlockHandler?() },
-                             for: .touchUpInside)
-            addSubview(button)
-            NSLayoutConstraint.activate([
-                button.centerXAnchor.constraint(equalTo: centerXAnchor),
-                button.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 30),
-            ])
-            isAccessibilityElement = true
-            accessibilityLabel = "已锁定"
+            installLockOverlay()
         }
     }
 
     required init?(coder: NSCoder) { fatalError("not supported") }
+
+    /// 锁定浮层：中央锁图标 + 「轻点解锁」，整屏可点重试
+    private func installLockOverlay() {
+        guard lockStack == nil else {
+            hintLabel.text = "轻点解锁"
+            return
+        }
+
+        let icon = UIImageView(image: UIImage(systemName: "lock.fill"))
+        icon.tintColor = .secondaryLabel
+        icon.contentMode = .scaleAspectFit
+        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 40, weight: .light)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        hintLabel.text = "轻点解锁"
+        hintLabel.font = .systemFont(ofSize: 15, weight: .medium)
+        hintLabel.textColor = .secondaryLabel
+        hintLabel.textAlignment = .center
+
+        let stack = UIStackView(arrangedSubviews: [icon, hintLabel])
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 14
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 48),
+            icon.heightAnchor.constraint(equalToConstant: 48),
+        ])
+        lockStack = stack
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        addGestureRecognizer(tap)
+
+        isAccessibilityElement = true
+        accessibilityLabel = "已锁定，轻点解锁"
+        accessibilityTraits = .button
+    }
+
+    /// 已有遮罩时切换模式（避免重新截图造成的闪烁）
+    func setLocked(_ locked: Bool) {
+        if locked { installLockOverlay() }
+    }
+
+    func showAuthFailure() {
+        hintLabel.text = "验证未通过，轻点重试"
+    }
+
+    @objc private func handleTap() {
+        unlockHandler?()
+    }
 }
