@@ -104,29 +104,39 @@ struct LNCategoryView: View {
     }
 }
 
-/// 电影列表：分类目录下直接是视频文件，平铺列出，点开即播。
+/// 电影海报墙：分类目录下直接是视频文件，同名图片做封面，点开即播。
 /// 与其余三类不同——电影没有「书 → 章」结构，所以不走 LNScanner/LNBookListView。
+///
+/// 布局（用户口径）：竖版封面按 3 列走截图那种海报墙；横版封面一排两个。
+/// 宽高比要先解码图片才知道，所以 load() 里把同名封面下载到本地、用 LNImageLoader
+/// 解一次拿到比例，再按竖/横分组；分组只是排版，点击播放链路完全不变。
 struct LNMovieListView: View {
     let source: any LNLibrarySource
 
     @State private var movies: [LNMediaItem] = []
     @State private var errorMessage: String?
     @State private var loading = false
+    /// 视频 path → 已下载到本地的封面 URL（供海报格子显示）
+    @State private var covers: [String: URL] = [:]
+    /// 视频 path → 封面宽高比（宽/高）；<1 竖版，>=1 横版
+    @State private var coverRatios: [String: CGFloat] = [:]
+
+    /// 3 列竖版海报（截图样式）
+    private let posterColumns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+    ]
+    /// 横版一排两个
+    private let wideColumns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+    ]
 
     var body: some View {
         Group {
             if loading && movies.isEmpty {
-                // 骨架占位而不是全屏 spinner
-                VStack(spacing: 10) {
-                    ForEach(0 ..< 6, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(ReadingTheme.groupedCanvas)
-                            .frame(height: 56)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .redacted(reason: .placeholder)
+                posterSkeleton
             } else if let errorMessage, movies.isEmpty {
                 ReadingUnavailableView("无法读取电影目录",
                                        systemImage: "film",
@@ -136,14 +146,19 @@ struct LNMovieListView: View {
                                        systemImage: "film",
                                        description: Text(LNCategory.movie.hint))
             } else {
-                List(movies) { movie in
-                    NavigationLink {
-                        LNMoviePlayerView(item: movie, source: source)
-                    } label: {
-                        movieRow(movie)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        if !portraitMovies.isEmpty {
+                            posterGrid(portraitMovies, columns: posterColumns)
+                        }
+                        if !landscapeMovies.isEmpty {
+                            posterGrid(landscapeMovies, columns: wideColumns)
+                        }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 24)
                 }
-                .listStyle(.plain)
             }
         }
         .navigationTitle(LNCategory.movie.label)
@@ -154,26 +169,77 @@ struct LNMovieListView: View {
         .accessibilityIdentifier("ln.movie.list")
     }
 
-    private func movieRow(_ movie: LNMediaItem) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "play.rectangle.fill")
-                .font(.system(size: 20, weight: .regular))
-                .foregroundStyle(ReadingTheme.accent)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(movie.fileName)
-                    .font(.body)
-                    .foregroundStyle(ReadingTheme.ink)
-                    .lineLimit(2)
-                Text("点击播放")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    /// 无封面 / 未知比例的视频都归竖版组（默认海报墙样式）
+    private var portraitMovies: [LNMediaItem] {
+        movies.filter { (coverRatios[$0.path] ?? 0.75) < 1 }
+    }
+
+    private var landscapeMovies: [LNMediaItem] {
+        movies.filter { (coverRatios[$0.path] ?? 0.75) >= 1 }
+    }
+
+    private func posterGrid(_ items: [LNMediaItem], columns: [GridItem]) -> some View {
+        LazyVGrid(columns: columns, spacing: 18) {
+            ForEach(items) { movie in
+                NavigationLink {
+                    LNMoviePlayerView(item: movie, source: source)
+                } label: {
+                    posterCell(movie)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("播放 \(movie.fileName)")
             }
-            Spacer(minLength: 0)
         }
-        // 整行可点（含右侧空白），与章节/书籍列表保持一致
-        .contentShape(Rectangle())
-        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func posterCell(_ movie: LNMediaItem) -> some View {
+        let ratio = coverRatios[movie.path] ?? 0.75
+        VStack(alignment: .leading, spacing: 6) {
+            Group {
+                if let cover = covers[movie.path],
+                   let loaded = LNImageLoader.shared.cached(cover, maxPixel: 600) {
+                    Image(uiImage: loaded.image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    // 无封面：胶片占位（不依赖颜色单独传达，有图标）
+                    ZStack {
+                        ReadingTheme.groupedCanvas
+                        Image(systemName: "film")
+                            .font(.system(size: 28, weight: .light))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            // 用 aspectRatio 而非固定高度：竖版高、横版扁，保留原始海报比例
+            .aspectRatio(ratio > 0 ? ratio : 0.75, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
+            )
+
+            Text(movie.fileName)
+                .font(.subheadline)
+                .foregroundStyle(ReadingTheme.ink)
+                .lineLimit(1)
+                .accessibilityLabel(movie.fileName)
+        }
+    }
+
+    private var posterSkeleton: some View {
+        LazyVGrid(columns: posterColumns, spacing: 18) {
+            ForEach(0 ..< 6, id: \.self) { _ in
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(ReadingTheme.groupedCanvas)
+                    .aspectRatio(0.75, contentMode: .fit)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .redacted(reason: .placeholder)
     }
 
     private func load() async {
@@ -182,10 +248,43 @@ struct LNMovieListView: View {
         defer { loading = false }
         do {
             let nodes = try await source.list(at: source.categoryRoot(.movie))
-            movies = nodes
+            let videos = nodes
                 .filter { LNScanner.isVideo($0) }
                 .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-                .map { LNMediaItem(path: $0.path, fileName: $0.name, kind: .video) }
+            movies = videos.map { LNMediaItem(path: $0.path, fileName: $0.name, kind: .video) }
+
+            // 同名封面匹配：去扩展名后完全一致（大小写不敏感），优先常见图片格式
+            let images = nodes.filter { LNScanner.isImage($0) }
+            var byBase: [String: LNNode] = [:]
+            for image in images {
+                let base = ((image.name as NSString).deletingPathExtension as NSString).lowercased
+                if byBase[base] == nil { byBase[base] = image }
+            }
+
+            // 并发下载 + 解码封面（只取比例，LNImageLoader 会缓存解码结果）。
+            // 串行 await 在 NAS 上是「每部电影一次列目录+一次下载」，几十部会卡很久。
+            let loadedCovers = await withTaskGroup(of: (String, URL, CGFloat)?.self) { group in
+                for video in videos {
+                    let base = ((video.name as NSString).deletingPathExtension as NSString).lowercased
+                    guard let coverNode = byBase[base] else { continue }
+                    group.addTask {
+                        guard let local = try? await source.localURL(for: coverNode.path) else { return nil }
+                        guard let loaded = await LNImageLoader.shared.load(local, maxPixel: 600) else { return nil }
+                        return (video.path, local, loaded.aspectRatio)
+                    }
+                }
+                var results: [(String, URL, CGFloat)] = []
+                for await item in group { if let item { results.append(item) } }
+                return results
+            }
+            var nextCovers: [String: URL] = [:]
+            var nextRatios: [String: CGFloat] = [:]
+            for (path, local, ratio) in loadedCovers {
+                nextCovers[path] = local
+                nextRatios[path] = ratio
+            }
+            covers = nextCovers
+            coverRatios = nextRatios
         } catch {
             // 只显示 SMB 错误码用户看不出在哪改，把实际探测路径一起报出来
             let path = source.categoryRoot(.movie)
