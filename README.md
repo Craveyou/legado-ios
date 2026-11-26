@@ -4,9 +4,9 @@
 
 # 熊猫阅读
 
-**搜书快一点，读书舒服一点。**
+**本地阅读，简单纯粹。**
 
-一款优先兼容阅读书源的 iOS 阅读器
+一款支持本地 TXT / EPUB 阅读的 iOS 阅读器
 
 ![iOS 15+](https://img.shields.io/badge/iOS-15%2B-315C50)
 ![Swift](https://img.shields.io/badge/Swift-F05138?logo=swift&logoColor=white)
@@ -17,7 +17,7 @@
 
 </div>
 
-熊猫阅读是一款 iOS 阅读器，优先兼容阅读书源，希望从导入书源、搜索书籍到打开阅读都能方便、顺手一些。本项目是 [Aminark/legado-ios](https://github.com/Aminark/legado-ios) 的个人定制分支，在书源阅读之外补充了 KSPlayer 全格式视频播放、本地漫画 / 整理 / 短剧与 NAS 书库、以及带油猴脚本的内嵌浏览器。
+熊猫阅读是一款 iOS 阅读器，支持本地 TXT / EPUB 阅读，希望从导入书源、搜索书籍到打开阅读都能方便、顺手一些。本项目是 [Aminark/legado-ios](https://github.com/Aminark/legado-ios) 的个人定制分支，并补充了 KSPlayer 全格式视频播放、本地漫画 / 整理 / 短剧与 NAS 书库、以及带油猴脚本的内嵌浏览器。
 
 项目仍在边用边改，书源兼容和阅读体验会继续完善。
 
@@ -58,7 +58,6 @@
 | 本地 TXT / EPUB | TXT 自定义目录规则；EPUB 2/3 原书排版、封面、内嵌图表、目录与续读 |
 | 语音朗读 | 系统朗读与 HTTP TTS 配置 |
 | 阅读工具 | 替换净化、阅读记录、时长统计和缓存管理 |
-| RSS 订阅 | 订阅源管理与内容阅读 |
 | 本地与 NAS 书库 | 本地漫画 / 整理 / 短剧分类；飞牛 NAS 四类目录（SMB 内网、WebDAV 外网），目录可配置、可浏览点选；电影用同名图片做封面墙（竖版 3 列 / 横版 2 列） |
 | 视频播放 | KSPlayer 内核全格式播放（含 mkv），自动全屏、进度续播、外挂字幕、长按倍速 |
 | 内嵌浏览器 | 发现页进入，支持油猴脚本导入 / GM API / 运行日志诊断，移动端 UA 与桌面版切换 |
