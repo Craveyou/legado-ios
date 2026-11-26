@@ -861,7 +861,7 @@ private enum FeiniuWebDAV {
         request.timeoutInterval = timeout
         let basic = Data("\(connection.effectiveWebDAVUsername):\(connection.effectiveWebDAVPassword)".utf8).base64EncodedString()
         request.setValue("Basic \(basic)", forHTTPHeaderField: "Authorization")
-        request.setValue("小浣熊阅读/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("熊猫阅读/1.0", forHTTPHeaderField: "User-Agent")
         return request
     }
 

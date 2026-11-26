@@ -1,13 +1,13 @@
 {
-  "name": "小浣熊阅读 · 未签名构建",
+  "name": "熊猫阅读 · 未签名构建",
   "subtitle": "KSPlayer 全格式播放 / 本地与 NAS 书库 / 油猴浏览器",
-  "description": "小浣熊阅读（legado-ios）的个人定制构建分发源。支持阅读书源、本地 TXT/EPUB、本地漫画/整理/短剧、飞牛 NAS 四类书库、KSPlayer 全格式视频播放与外挂字幕、内嵌浏览器与油猴脚本。未签名 IPA，安装走你自己的 Apple 账号，免费账号 7 天需刷新。",
+  "description": "熊猫阅读（legado-ios）的个人定制构建分发源。支持阅读书源、本地 TXT/EPUB、本地漫画/整理/短剧、飞牛 NAS 四类书库、KSPlayer 全格式视频播放与外挂字幕、内嵌浏览器与油猴脚本。未签名 IPA，安装走你自己的 Apple 账号，免费账号 7 天需刷新。",
   "iconURL": "https://raw.githubusercontent.com/Craveyou/legado-ios/main/App/Assets.xcassets/BrandIcon.imageset/BrandIcon.png",
   "website": "https://github.com/Craveyou/legado-ios",
   "tintColor": "#315C50",
   "apps": [
     {
-      "name": "小浣熊阅读",
+      "name": "熊猫阅读",
       "bundleIdentifier": "com.epiboly.legado",
       "developerName": "Craveyou",
       "subtitle": "搜书快一点，读书舒服一点",

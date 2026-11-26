@@ -82,7 +82,7 @@ struct LNLocalSource: LNLibrarySource {
     }
 }
 
-// MARK: - NAS 源（复用小浣熊 FeiniuNASService，不动链路层）
+// MARK: - NAS 源（复用熊猫阅读 FeiniuNASService，不动链路层）
 
 struct LNNASSource: LNLibrarySource {
     let connection: FeiniuConnection

@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="App/Assets.xcassets/BrandIcon.imageset/BrandIcon.png" width="128" height="128" alt="小浣熊阅读" />
+<img src="App/Assets.xcassets/BrandIcon.imageset/BrandIcon.png" width="128" height="128" alt="熊猫阅读" />
 
-# 小浣熊阅读
+# 熊猫阅读
 
 **搜书快一点，读书舒服一点。**
 
@@ -17,11 +17,11 @@
 
 </div>
 
-小浣熊阅读是一款 iOS 阅读器，优先兼容阅读书源，希望从导入书源、搜索书籍到打开阅读都能方便、顺手一些。本项目是 [Aminark/legado-ios](https://github.com/Aminark/legado-ios) 的个人定制分支，在书源阅读之外补充了 KSPlayer 全格式视频播放、本地漫画 / 整理 / 短剧与 NAS 书库、以及带油猴脚本的内嵌浏览器。
+熊猫阅读是一款 iOS 阅读器，优先兼容阅读书源，希望从导入书源、搜索书籍到打开阅读都能方便、顺手一些。本项目是 [Aminark/legado-ios](https://github.com/Aminark/legado-ios) 的个人定制分支，在书源阅读之外补充了 KSPlayer 全格式视频播放、本地漫画 / 整理 / 短剧与 NAS 书库、以及带油猴脚本的内嵌浏览器。
 
 项目仍在边用边改，书源兼容和阅读体验会继续完善。
 
-**小浣熊阅读不提供书源或在线书库。** 书源需由用户自行从网络公开分享获取，或自行编写后导入；也可以直接阅读本地 TXT / EPUB。
+**熊猫阅读不提供书源或在线书库。** 书源需由用户自行从网络公开分享获取，或自行编写后导入；也可以直接阅读本地 TXT / EPUB。
 
 ## 下载安装
 
@@ -34,7 +34,7 @@
 1. 在 iPhone 上安装 **AltStore（Classic）**，并在电脑上运行 AltServer（见 [AltStore 文档](https://faq.altstore.io/)）。
 2. 在 AltStore 的 **Sources → Add Source** 中填入源地址：
    `https://raw.githubusercontent.com/Craveyou/legado-ios/main/altstore.json`
-3. 添加后即可在 AltStore 中找到「小浣熊阅读」并安装；后续 Releases 发新版本时，在 AltStore 里点更新即可，无需再到这里下载 IPA。
+3. 添加后即可在 AltStore 中找到「熊猫阅读」并安装；后续 Releases 发新版本时，在 AltStore 里点更新即可，无需再到这里下载 IPA。
 
 > 免费 Apple 账号签发的 App 通常 7 天到期，AltStore 会在与 AltServer 同 WiFi 时自动后台刷新。订阅源只是分发入口，签名仍走你自己的 Apple 账号。
 
@@ -71,14 +71,14 @@
 
 <table>
   <tr>
-    <td align="center"><strong>书架</strong><br /><a href="docs/images/bookshelf.png"><img src="docs/images/bookshelf.png" width="230" alt="小浣熊阅读书架" /></a></td>
-    <td align="center"><strong>搜书</strong><br /><a href="docs/images/search.png"><img src="docs/images/search.png" width="230" alt="小浣熊阅读搜索结果与缓存展示" /></a></td>
-    <td align="center"><strong>书源管理</strong><br /><a href="docs/images/sources.png"><img src="docs/images/sources.png" width="230" alt="小浣熊阅读书源管理" /></a></td>
+    <td align="center"><strong>书架</strong><br /><a href="docs/images/bookshelf.png"><img src="docs/images/bookshelf.png" width="230" alt="熊猫阅读书架" /></a></td>
+    <td align="center"><strong>搜书</strong><br /><a href="docs/images/search.png"><img src="docs/images/search.png" width="230" alt="熊猫阅读搜索结果与缓存展示" /></a></td>
+    <td align="center"><strong>书源管理</strong><br /><a href="docs/images/sources.png"><img src="docs/images/sources.png" width="230" alt="熊猫阅读书源管理" /></a></td>
   </tr>
   <tr>
-    <td align="center"><strong>日间阅读</strong><br /><a href="docs/images/reader.png"><img src="docs/images/reader.png" width="230" alt="小浣熊阅读纸色主题" /></a></td>
-    <td align="center"><strong>夜间阅读</strong><br /><a href="docs/images/reader-dark.png"><img src="docs/images/reader-dark.png" width="230" alt="小浣熊阅读夜间主题" /></a></td>
-    <td align="center"><strong>我的</strong><br /><a href="docs/images/profile.png"><img src="docs/images/profile.png" width="230" alt="小浣熊阅读个人中心" /></a></td>
+    <td align="center"><strong>日间阅读</strong><br /><a href="docs/images/reader.png"><img src="docs/images/reader.png" width="230" alt="熊猫阅读纸色主题" /></a></td>
+    <td align="center"><strong>夜间阅读</strong><br /><a href="docs/images/reader-dark.png"><img src="docs/images/reader-dark.png" width="230" alt="熊猫阅读夜间主题" /></a></td>
+    <td align="center"><strong>我的</strong><br /><a href="docs/images/profile.png"><img src="docs/images/profile.png" width="230" alt="熊猫阅读个人中心" /></a></td>
   </tr>
 </table>
 
@@ -87,9 +87,9 @@
 
 <table>
   <tr>
-    <td align="center"><strong>发现</strong><br /><a href="docs/images/explore.png"><img src="docs/images/explore.png" width="230" alt="小浣熊阅读发现页面" /></a></td>
-    <td align="center"><strong>阅读统计</strong><br /><a href="docs/images/statistics.png"><img src="docs/images/statistics.png" width="230" alt="小浣熊阅读统计页面" /></a></td>
-    <td align="center"><strong>关于</strong><br /><a href="docs/images/about.png"><img src="docs/images/about.png" width="230" alt="小浣熊阅读关于页面" /></a></td>
+    <td align="center"><strong>发现</strong><br /><a href="docs/images/explore.png"><img src="docs/images/explore.png" width="230" alt="熊猫阅读发现页面" /></a></td>
+    <td align="center"><strong>阅读统计</strong><br /><a href="docs/images/statistics.png"><img src="docs/images/statistics.png" width="230" alt="熊猫阅读统计页面" /></a></td>
+    <td align="center"><strong>关于</strong><br /><a href="docs/images/about.png"><img src="docs/images/about.png" width="230" alt="熊猫阅读关于页面" /></a></td>
   </tr>
 </table>
 
@@ -111,7 +111,7 @@ EPUB 导入入口：书架 → 更多 → 本地书，或「我的 → 文件管
 
 ## 书源说明
 
-小浣熊阅读仅提供书源解析、书籍管理和阅读功能，**不提供、内置或分发网络书源**。用户使用的书源来自网络公开分享，或由用户自行编写、导入。
+熊猫阅读仅提供书源解析、书籍管理和阅读功能，**不提供、内置或分发网络书源**。用户使用的书源来自网络公开分享，或由用户自行编写、导入。
 
 在线书籍正文、封面、简介及订阅内容由书源对应的第三方网站提供，版权归原作者或合法权利人所有。网络公开分享、书源可导入或内容可访问，不代表已获得内容授权。
 
@@ -123,7 +123,7 @@ EPUB 导入入口：书架 → 更多 → 本地书，或「我的 → 文件管
 
 最开始只是打算自己用：搜书快一点，导入书源方便一点，找到书以后能舒舒服服地看下去。
 
-后来就这样边写边用、缺什么补什么，慢慢成了现在的小浣熊阅读。既然可能还有朋友有同样的需求，就把它开源出来，欢迎一起折腾。
+后来就这样边写边用、缺什么补什么，慢慢成了现在的熊猫阅读。既然可能还有朋友有同样的需求，就把它开源出来，欢迎一起折腾。
 
 ## 反馈与贡献
 

@@ -259,7 +259,7 @@ struct LNUserscriptListView: View {
     }
 
     /// 兜底通道：文件选择器万一还是不给回调，用户可以用「文件」App 把脚本拖进
-    /// 「我的 iPhone → 小浣熊阅读」目录，这里直接扫本机文档目录导入。
+    /// 「我的 iPhone → 熊猫阅读」目录，这里直接扫本机文档目录导入。
     private func importFromAppFolder() {
         Task { @MainActor in
             let fm = FileManager.default
@@ -272,7 +272,7 @@ struct LNUserscriptListView: View {
                 ["js", "mjs", "txt", "text"].contains($0.pathExtension.lowercased())
             }
             guard !found.isEmpty else {
-                showToast("「小浣熊阅读」文件夹里没有 .js 文件\n用「文件」App 把脚本拖进去再试一次", duration: 6)
+                showToast("「熊猫阅读」文件夹里没有 .js 文件\n用「文件」App 把脚本拖进去再试一次", duration: 6)
                 return
             }
             await importFiles(found)

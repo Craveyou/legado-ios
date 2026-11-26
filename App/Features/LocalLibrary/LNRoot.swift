@@ -1,8 +1,8 @@
 import Foundation
 
 /// 三类书库的本地根目录与首次启动初始化。
-/// 根 = App Documents/本地小说/，通过「文件」App → 我的 iPhone → 小浣熊阅读 可见。
-/// 小说目录不建、不扫，小说仍走小浣熊自己的书架。
+/// 根 = App Documents/本地小说/，通过「文件」App → 我的 iPhone → 熊猫阅读 可见。
+/// 小说目录不建、不扫，小说仍走熊猫阅读自己的书架。
 enum LNRoot {
     static let folderName = "本地小说"
 

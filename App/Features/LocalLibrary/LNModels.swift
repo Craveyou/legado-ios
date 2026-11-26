@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - 本地/NAS 共用的三类书库模型
 // 参照 LocalNovel 的 LibraryModels / BookSections，按 iOS 15 + Swift 6 重写。
-// 小说分区不在此列（仍走小浣熊自己的书架）。
+// 小说分区不在此列（仍走熊猫阅读自己的书架）。
 
 enum LNCategory: String, CaseIterable, Identifiable, Hashable, Sendable {
     case comic
