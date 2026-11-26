@@ -21,11 +21,11 @@
       "versions": [
         {
           "version": "0.1.15",
-          "buildVersion": "84",
+          "buildVersion": "85",
           "date": "2026-11-26",
-          "localizedDescription": "build 84：修复「最后一张继续左滑不退出大图」——改为跟踪拖拽峰值越界量，快甩和慢拖都能触发。包含 b83 大图手势全套与之前全部功能。",
-          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b84/Legado-xiaohuanxiong-video-b84-swipeexit-fix-unsigned.ipa",
-          "size": 28620851,
+          "localizedDescription": "build 85：应用更名为「熊猫阅读」，全新熊猫捧书图标；包含 b84 末页左滑退出修复、b83 大图手势（捏合缩放/双击/上滑关闭/退出定位）等全部既有功能。",
+          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b85/Legado-panda-reader-b85-rename-icon-unsigned.ipa",
+          "size": 28256114,
           "minOSVersion": "15.0"
         }
       ],
