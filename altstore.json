@@ -21,11 +21,11 @@
       "versions": [
         {
           "version": "0.1.15",
-          "buildVersion": "82",
+          "buildVersion": "83",
           "date": "2026-11-26",
-          "localizedDescription": "build 82：电影海报支持长按删除（带确认弹窗，连本地封面缓存一起清理）；时长磁盘缓存，二次进页面零探测即时显示。包含 b81 封面磁盘缓存、b80 海报墙、b79 首帧封面/自动全屏续播等全部既有功能。",
-          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b82/Legado-xiaohuanxiong-video-b82-delete-duration-unsigned.ipa",
-          "size": 28615325,
+          "localizedDescription": "build 83：大图预览新增手势——双指捏合缩放（1x~4x）、双击在适应屏幕与 2.5x 间切换、上滑关闭、在最后一张继续左滑退出；退出后正文自动定位到退出时的那张图。包含 b82 海报删除/时长缓存等全部既有功能。",
+          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b83/Legado-xiaohuanxiong-video-b83-imageviewer-gestures-unsigned.ipa",
+          "size": 28621172,
           "minOSVersion": "15.0"
         }
       ],
