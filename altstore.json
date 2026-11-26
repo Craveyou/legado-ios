@@ -21,11 +21,11 @@
       "versions": [
         {
           "version": "0.1.15",
-          "buildVersion": "80",
+          "buildVersion": "81",
           "date": "2026-11-26",
-          "localizedDescription": "build 80：NAS 电影分类改海报墙——同名图片做封面，竖版海报 3 列、横版一排两个。包含 b79 首帧封面与自动全屏续播、b78 占位图、b77 NAS WebDAV 路径映射修复。",
-          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b80/Legado-xiaohuanxiong-video-b80-posterwall-unsigned.ipa",
-          "size": 28596665,
+          "localizedDescription": "build 81：电影封面磁盘持久缓存（二次进页面零下载秒出图）；海报卡片新增文件大小与时长显示。包含 b80 海报墙、b79 首帧封面与自动全屏续播、b78 占位图、b77 NAS WebDAV 路径映射修复。",
+          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b81/Legado-xiaohuanxiong-video-b81-covercache-unsigned.ipa",
+          "size": 28605371,
           "minOSVersion": "15.0"
         }
       ],
