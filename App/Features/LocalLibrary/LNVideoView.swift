@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import SwiftUI
 @preconcurrency import KSPlayer
 
@@ -245,7 +245,8 @@ struct LNVideoView: View {
     /// 所以 NAS WebDAV 流式 URL 也能抓到；本地 fileURL 直接可抓。
     /// 失败不打扰用户——保留渐变占位图即可。
     private func loadCoverImage(url: URL, options: KSOptions) async {
-        let headers = options.avOptions[AVURLAssetHTTPHeaderFieldsKey] as? [String: String]
+        // key 用字面量：与 KSPlayer KSOptions.appendHeader 写入的 key 一致
+        let headers = options.avOptions["AVURLAssetHTTPHeaderFieldsKey"] as? [String: String]
         guard let image = await Self.generateCover(url: url, headers: headers) else { return }
         box.coverImage = image
         // 宿主已创建就直接换图；未创建则由 makeUIView 读 box.coverImage 补上
@@ -257,7 +258,7 @@ struct LNVideoView: View {
     /// 在指定时间点抓一帧，后台执行（AVAssetImageGenerator 自带队列，不阻塞主线程）。
     /// 取 0.1 秒而非 0：有些视频第 0 帧全黑。
     private static func generateCover(url: URL, headers: [String: String]?) async -> UIImage? {
-        let assetOptions: [String: Any]? = headers.map { [AVURLAssetHTTPHeaderFieldsKey: $0] }
+        let assetOptions: [String: Any]? = headers.map { ["AVURLAssetHTTPHeaderFieldsKey": $0] }
         let asset = AVURLAsset(url: url, options: assetOptions)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
@@ -265,12 +266,12 @@ struct LNVideoView: View {
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
         let time = CMTime(value: 1, timescale: 10) // 0.1s
-        do {
-            let cgImage = try await generator.image(at: time).image
-            return UIImage(cgImage: cgImage)
-        } catch {
-            // 某些格式（如部分 mkv 编码）AVFoundation 抽帧失败：静默回退渐变占位图
-            return nil
+        // 用 completion 版包装成 async：`image(at:)` 是 iOS 16+，本项目部署目标 iOS 15。
+        // 某些格式（如部分 mkv 编码）AVFoundation 抽帧失败：静默回退渐变占位图。
+        return await withCheckedContinuation { continuation in
+            generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: time)]) { _, cgImage, _, _, _ in
+                continuation.resume(returning: cgImage.map { UIImage(cgImage: $0) })
+            }
         }
     }
 
