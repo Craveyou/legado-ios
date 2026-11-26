@@ -21,11 +21,11 @@
       "versions": [
         {
           "version": "0.1.15",
-          "buildVersion": "79",
+          "buildVersion": "80",
           "date": "2026-11-26",
-          "localizedDescription": "build 79：播放前显示视频真实首帧封面（抽帧失败回退渐变图）；点击播放后自动全屏并续播，不再卡住。包含 b78 的占位图、b77 的 NAS WebDAV 路径映射修复与全部既有功能。",
-          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b79/Legado-xiaohuanxiong-video-b79-firstframe-unsigned.ipa",
-          "size": 28587244,
+          "localizedDescription": "build 80：NAS 电影分类改海报墙——同名图片做封面，竖版海报 3 列、横版一排两个。包含 b79 首帧封面与自动全屏续播、b78 占位图、b77 NAS WebDAV 路径映射修复。",
+          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b80/Legado-xiaohuanxiong-video-b80-posterwall-unsigned.ipa",
+          "size": 28596665,
           "minOSVersion": "15.0"
         }
       ],
