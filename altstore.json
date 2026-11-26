@@ -21,11 +21,11 @@
       "versions": [
         {
           "version": "0.1.15",
-          "buildVersion": "85",
+          "buildVersion": "86",
           "date": "2026-11-26",
-          "localizedDescription": "build 85：应用更名为「熊猫阅读」，全新熊猫捧书图标；包含 b84 末页左滑退出修复、b83 大图手势（捏合缩放/双击/上滑关闭/退出定位）等全部既有功能。",
-          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b85/Legado-panda-reader-b85-rename-icon-unsigned.ipa",
-          "size": 28256114,
+          "localizedDescription": "build 86：移除网络书源链路（书源管理/聚合搜索/换源/章节缓存/RSS/规则订阅），专注本地书与 NAS；净化规则、TXT 目录规则、浏览器油猴、NAS 全部保留。包含 b85 更名与新图标。",
+          "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b86/Legado-panda-reader-b86-slim-unsigned.ipa",
+          "size": 27525542,
           "minOSVersion": "15.0"
         }
       ],
