@@ -25,7 +25,7 @@
           "date": "2026-11-26",
           "localizedDescription": "build 90（0.2.3）：隐私与安全重做，观感对齐主流 App——后台遮罩改为「离开时界面的毛玻璃快照」（任务切换器里保留页面轮廓、内容不可辨），锁定态中央锁图标 + 轻点解锁，验证通过淡出（入口：我的 → 其他设置 → 隐私与安全）。包含 b89 全部功能。",
           "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b90/Legado-panda-reader-b90-privacy-blur-lock-unsigned.ipa",
-          "size": 27572196,
+          "size": 27572597,
           "minOSVersion": "15.0"
         }
       ],
