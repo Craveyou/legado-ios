@@ -132,6 +132,10 @@ struct LNMovieListView: View {
     @State private var sizes: [String: Int64] = [:]
     /// 视频 path → 时长文本（"1:23:45" / "12:34"）；探测失败不显示
     @State private var durations: [String: String] = [:]
+    /// 长按待删除的电影（触发确认弹窗）
+    @State private var movieToDelete: LNMediaItem?
+    @State private var showDeleteConfirm = false
+    @State private var deleteError: String?
 
     /// 3 列竖版海报（截图样式）
     private let posterColumns = [
@@ -178,6 +182,20 @@ struct LNMovieListView: View {
         .lnShowsTabBar()
         .task { await load() }
         .refreshable { await load() }
+        .alert("删除确认", isPresented: $showDeleteConfirm, presenting: movieToDelete) { movie in
+            Button("取消", role: .cancel) {}
+            Button("删除", role: .destructive) { Task { await deleteMovie(movie) } }
+        } message: { movie in
+            Text("将删除「\(movie.fileName)」这个视频文件，不可恢复。")
+        }
+        .alert("删除失败", isPresented: Binding(
+            get: { deleteError != nil },
+            set: { if !$0 { deleteError = nil } }
+        )) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(deleteError ?? "")
+        }
         .accessibilityIdentifier("ln.movie.list")
     }
 
@@ -200,7 +218,33 @@ struct LNMovieListView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("播放 \(movie.fileName)")
+                // LazyVGrid 不支持 swipeActions，用长按菜单做删除入口（与书/章节列表的删除同一套确认弹窗）
+                .contextMenu {
+                    Button(role: .destructive) {
+                        movieToDelete = movie
+                        showDeleteConfirm = true
+                    } label: {
+                        Label("删除", systemImage: "trash")
+                    }
+                }
             }
+        }
+    }
+
+    /// 删除一部电影：源文件 + 本地缓存的封面 + 各状态字典，一起清掉
+    private func deleteMovie(_ movie: LNMediaItem) async {
+        do {
+            try await source.remove(at: movie.path)
+            movies.removeAll { $0.path == movie.path }
+            sizes[movie.path] = nil
+            durations[movie.path] = nil
+            coverRatios[movie.path] = nil
+            if let cover = covers[movie.path] {
+                try? FileManager.default.removeItem(at: cover)
+                covers[movie.path] = nil
+            }
+        } catch {
+            deleteError = "删除「\(movie.fileName)」失败：\(error.localizedDescription)"
         }
     }
 
@@ -307,6 +351,14 @@ struct LNMovieListView: View {
 
     // MARK: - 时长探测
 
+    /// 时长缓存存 UserDefaults 的键名（全局一个字典，量很小：每部电影一条文本）
+    private static let durationStoreKey = "ln.movie.durationCache.v1"
+
+    /// 缓存键带文件大小：NAS 上替换了文件（大小变化）会自动重新探测
+    nonisolated private static func durationCacheKey(rootID: String, path: String, size: Int64) -> String {
+        "\(rootID)|\(path)|\(size)"
+    }
+
     /// 用流式 URL + 认证头探测视频时长（AVURLAsset 只拉元数据，走 Range 请求很轻）。
     /// SMB-only 无流式链路时 streamingVideo 返回 nil，跳过（不显示时长）。
     nonisolated private static func probeDuration(source: any LNLibrarySource, path: String) async -> String? {
@@ -394,13 +446,21 @@ struct LNMovieListView: View {
             covers = nextCovers
             coverRatios = nextRatios
 
-            // 时长探测不阻塞海报墙：每部视频一个后台任务，逐个回来逐个刷新
+            // 时长有磁盘缓存（key = rootID|path|size）：只探测没缓存的文件，
+            // 文件大小没变就直接用缓存，二次进页面零探测。每个探测任务独立回填。
+            let stored = UserDefaults.standard.dictionary(forKey: Self.durationStoreKey) as? [String: String] ?? [:]
+            for video in videos {
+                if let cached = stored[Self.durationCacheKey(rootID: rootID, path: video.path, size: video.size)] {
+                    durations[video.path] = cached
+                }
+            }
             for video in videos where durations[video.path] == nil {
                 Task {
-                    let value = await Self.probeDuration(source: source, path: video.path)
-                    if let value {
-                        durations[video.path] = value
-                    }
+                    guard let value = await Self.probeDuration(source: source, path: video.path) else { return }
+                    durations[video.path] = value
+                    var all = UserDefaults.standard.dictionary(forKey: Self.durationStoreKey) as? [String: String] ?? [:]
+                    all[Self.durationCacheKey(rootID: rootID, path: video.path, size: sizes[video.path] ?? 0)] = value
+                    UserDefaults.standard.set(all, forKey: Self.durationStoreKey)
                 }
             }
         } catch {
