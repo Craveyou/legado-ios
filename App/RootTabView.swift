@@ -169,7 +169,8 @@ private struct BookshelfView: View {
                         } else {
                             if let book = recentBook {
                                 ContinueReadingSection(book: book,
-                                                       source: sources.sources.first { $0.bookSourceUrl == book.origin })
+                                                       source: sources.sources.first { $0.bookSourceUrl == book.origin },
+                                                       horizontalInset: 0)
                             }
                             bookshelfSummary
                             if bookshelfLayout.hasPrefix("grid") {
@@ -495,11 +496,14 @@ private struct BookshelfBookDestination: View {
     }
 }
 
-/// 「继续阅读」栏：书架 / 合集 / NAS 三个 Tab 共用（b87）。
-/// 数据同源——书架里最近开始读的书，点卡片直接回到上次位置。
+/// 「继续阅读」栏：书架 / 合集 / NAS 三个 Tab 都有（b87），但内容各自独立（b88）：
+/// 书架显示书架书籍的最近阅读；合集 / NAS 显示各自 LN 体系的最近记录。
+/// horizontalInset：书架外层 LazyVStack 已有 24pt 横向 padding，传 0 避免双重
+/// 缩进把卡片挤窄（b87 曾因此显得比合集 / NAS 的小）。
 private struct ContinueReadingSection: View {
     let book: Book
     let source: BookSource?
+    var horizontalInset: CGFloat = 24
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -515,22 +519,16 @@ private struct ContinueReadingSection: View {
             .accessibilityLabel("继续阅读，\(book.name)，\(BookReadingPresentation.position(book))")
             .accessibilityIdentifier("bookshelf.continue")
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, horizontalInset)
         .padding(.bottom, 30)
     }
 }
 
 /// 合集 Tab：本地漫画 / 整理 / 短剧的分类入口（原「本地」Tab 更名，b87）。
+/// 「继续阅读」用 LN 本地作用域记录（b88）——与书架互不影响。
 private struct LNCollectionTabView: View {
-    @EnvironmentObject private var library: BookLibraryModel
-    @EnvironmentObject private var sources: SourceLibraryModel
+    @State private var recentRecord: LNReadingRecord?
     let source: any LNLibrarySource
-
-    private var recentBook: Book? {
-        library.books.filter(BookReadingPresentation.hasStarted)
-            .sorted { $0.durChapterTime > $1.durChapterTime }
-            .first
-    }
 
     var body: some View {
         ScrollView {
@@ -538,9 +536,8 @@ private struct LNCollectionTabView: View {
                 ReadingPageHeader(title: "合集", subtitle: "本地漫画 / 整理 / 短剧，集中入口") {
                     EmptyView()
                 }
-                if let book = recentBook {
-                    ContinueReadingSection(book: book,
-                                           source: sources.sources.first { $0.bookSourceUrl == book.origin })
+                if let record = recentRecord {
+                    LNContinueReadingSection(record: record, source: source)
                 }
                 LNCategoryGrid(source: source, categories: LNCategory.localCases, showsCounts: true)
             }
@@ -549,6 +546,7 @@ private struct LNCollectionTabView: View {
         .background(ReadingTheme.canvas.ignoresSafeArea())
         .navigationBarHidden(true)
         .accessibilityIdentifier("ln.collection.scroll")
+        .onAppear { recentRecord = LNReadingTracker.recent(.local) }
     }
 }
 
@@ -557,14 +555,7 @@ private struct LNCollectionTabView: View {
 /// 没有连接时空态引导过去（b87）。
 private struct NASCollectionTabView: View {
     @StateObject private var store = FeiniuConnectionStore()
-    @EnvironmentObject private var library: BookLibraryModel
-    @EnvironmentObject private var sources: SourceLibraryModel
-
-    private var recentBook: Book? {
-        library.books.filter(BookReadingPresentation.hasStarted)
-            .sorted { $0.durChapterTime > $1.durChapterTime }
-            .first
-    }
+    @State private var recentRecord: LNReadingRecord?
 
     var body: some View {
         ScrollView {
@@ -572,12 +563,12 @@ private struct NASCollectionTabView: View {
                 ReadingPageHeader(title: "NAS", subtitle: "网络存储，随处阅读") {
                     EmptyView()
                 }
-                if let book = recentBook {
-                    ContinueReadingSection(book: book,
-                                           source: sources.sources.first { $0.bookSourceUrl == book.origin })
-                }
                 if let connection = store.connections.first {
                     // 多条连接时用第一条；连接管理（含增删改）在「我的 → NAS 连接」
+                    if let record = recentRecord {
+                        LNContinueReadingSection(record: record,
+                                                 source: LNNASSource(connection: connection, rootPath: "/"))
+                    }
                     LNCategoryGrid(source: LNNASSource(connection: connection, rootPath: "/"),
                                    categories: LNCategory.allCases, showsCounts: false)
                 } else {
@@ -589,6 +580,7 @@ private struct NASCollectionTabView: View {
         .background(ReadingTheme.canvas.ignoresSafeArea())
         .navigationBarHidden(true)
         .accessibilityIdentifier("nas.collection.scroll")
+        .onAppear { recentRecord = LNReadingTracker.recent(.nas) }
     }
 
     private var noConnectionHint: some View {
@@ -665,6 +657,155 @@ private struct ContinueReadingCard: View {
         }
         .padding(20)
         .background(ReadingTheme.groupedCanvas, in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+// MARK: - LN「继续阅读」（b88）：合集 Tab（local 作用域）/ NAS Tab（nas 作用域）各自独立
+
+/// LN 版「继续阅读」栏：显示该 Tab 作用域内最近一次打开的 LN 书 / 电影，
+/// 点卡片直接恢复到上次章节或影片。
+private struct LNContinueReadingSection: View {
+    let record: LNReadingRecord
+    let source: any LNLibrarySource
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("继续阅读")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+            NavigationLink {
+                LNRecordDestination(record: record, source: source)
+            } label: {
+                LNContinueReadingCard(record: record)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("继续阅读，\(record.bookTitle)，\(record.chapterName ?? record.categoryLabel)")
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 30)
+    }
+}
+
+private struct LNContinueReadingCard: View {
+    let record: LNReadingRecord
+
+    private var relativeTime: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(
+            for: Date(timeIntervalSince1970: record.timestamp),
+            relativeTo: Date()
+        )
+    }
+
+    private var actionLabel: String { record.isVideo ? "继续观看" : "继续阅读" }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 18) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(record.categoryLabel)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(ReadingTheme.accent)
+                Text(record.bookTitle)
+                    .font(.title3.bold())
+                    .foregroundStyle(ReadingTheme.ink)
+                    .lineLimit(2)
+                    .padding(.top, 6)
+                if let chapter = record.chapterName {
+                    Text(chapter)
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .padding(.top, 7)
+                }
+                Text("上次\(record.isVideo ? "观看" : "阅读") \(relativeTime)")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.top, 16)
+                HStack(spacing: 12) {
+                    Text(actionLabel)
+                    Image(systemName: "arrow.right")
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(ReadingTheme.onAccent)
+                .padding(.horizontal, 18)
+                .frame(minHeight: 40)
+                .background(ReadingTheme.accentFill, in: Capsule())
+                .padding(.top, 16)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: LNCategory(rawValue: record.category)?.symbol ?? "book")
+                .font(.system(size: 34, weight: .light))
+                .foregroundStyle(ReadingTheme.accent.opacity(0.55))
+                .frame(width: 72, height: 104)
+                .background(ReadingTheme.canvas, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .accessibilityHidden(true)
+        }
+        .padding(20)
+        .background(ReadingTheme.groupedCanvas, in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+/// LN「继续阅读」恢复页：按记录重扫目录重建书 / 重建电影条目，
+/// 直接回到上次打开的章节或影片。文件已删除 / 移动时给出提示。
+private struct LNRecordDestination: View {
+    let record: LNReadingRecord
+    let source: any LNLibrarySource
+
+    @ObservedObject private var nav = LNReaderNavigation.shared
+    @State private var restoredBook: LNBook?
+    @State private var restoredChapter: LNChapter?
+    @State private var chapters: [LNChapter] = []
+    @State private var movieItem: LNMediaItem?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Group {
+            if let movieItem {
+                LNMoviePlayerView(item: movieItem, source: source)
+            } else if let book = restoredBook, let chapter = restoredChapter {
+                LNReaderView(book: book, chapter: chapter, source: source, chapters: chapters)
+            } else if let errorMessage {
+                ReadingUnavailableView("无法继续上次阅读",
+                                       systemImage: "bookmark.slash",
+                                       description: Text(errorMessage))
+            } else {
+                ProgressView("正在定位上次阅读位置…")
+            }
+        }
+        .background(ReadingTheme.canvas.ignoresSafeArea())
+        .task { await restore() }
+    }
+
+    private func restore() async {
+        guard restoredBook == nil, movieItem == nil, errorMessage == nil else { return }
+        if record.isVideo {
+            // 电影只需 path / 文件名即可重建条目；文件已删时播放页自己会报错
+            movieItem = LNMediaItem(path: record.bookPath, fileName: record.bookTitle, kind: .video)
+            return
+        }
+        do {
+            let category = LNCategory(rawValue: record.category) ?? .organized
+            let nodes = try await source.list(at: source.categoryRoot(category))
+            guard let node = nodes.first(where: { $0.path == record.bookPath }) else {
+                errorMessage = "「\(record.bookTitle)」可能已被删除或移动，无法继续阅读。"
+                return
+            }
+            let books = try await LNScanner.books(in: [node], category: category,
+                                                  loadChildren: { node in
+                                                      try await source.list(at: node.path)
+                                                  })
+            guard let book = books.first, let chapter = book.chapters.first(where: { $0.path == record.chapterPath }) ?? book.chapters.first else {
+                errorMessage = "「\(record.bookTitle)」没有可读的章节了。"
+                return
+            }
+            // 与章节列表一致：先写共享 current 再呈现，防止残留旧章被 displayChapter 优先采用
+            nav.current = chapter
+            restoredBook = book
+            restoredChapter = chapter
+            chapters = book.chapters
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 

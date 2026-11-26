@@ -501,6 +501,8 @@ struct LNMoviePlayerView: View {
         .navigationTitle(item.fileName)
         .navigationBarTitleDisplayMode(.inline)
         .lnShowsTabBar()
+        // b88：出现即记入 LN「继续阅读」（NAS Tab 的电影记录）
+        .onAppear { LNReadingTracker.recordMovie(source: source, item: item) }
     }
 }
 
@@ -675,6 +677,8 @@ struct LNChapterListView: View {
                 .buttonStyle(.plain)
             } else {
                 Button {
+                    // b88：写入 LN「继续阅读」记录（合集 / NAS Tab 各自显示）
+                    LNReadingTracker.recordBook(source: source, book: book, chapter: chapter)
                     nav.current = chapter
                     showReader = true
                 } label: {

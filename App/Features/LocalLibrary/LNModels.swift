@@ -121,3 +121,75 @@ struct LNMediaItem: Identifiable, Hashable, Sendable {
         self.isAnimated = isAnimated
     }
 }
+
+// MARK: - LN「继续阅读」记录（b88）
+// LN 体系不走 Book 模型，书架的阅读记录（durChapterTime）覆盖不到这里，
+// 所以单独落最近一条记录：合集 Tab 用 local 作用域，NAS Tab 用 nas 作用域，
+// 三个 Tab 各自显示各自的最近阅读，互不干扰。
+
+enum LNReadingScope: String {
+    case local
+    case nas
+}
+
+struct LNReadingRecord: Codable, Equatable {
+    var scope: String
+    var category: String        // LNCategory.rawValue
+    var bookPath: String        // LNBook.path；电影是视频文件 path
+    var bookTitle: String       // LNBook.title；电影是文件名
+    var chapterPath: String?    // 最近打开的章节；电影无
+    var chapterName: String?
+    var isVideo: Bool           // 电影 true，走 LNMoviePlayerView 恢复
+    var timestamp: Double
+
+    var categoryLabel: String { LNCategory(rawValue: category)?.label ?? category }
+}
+
+enum LNReadingTracker {
+    private static func storageKey(_ scope: LNReadingScope) -> String {
+        "ln.reading.recent.\(scope.rawValue)"
+    }
+
+    /// 记录一次书籍章打开（LNChapterListView 点章 / 恢复页进章）
+    static func recordBook(source: any LNLibrarySource, book: LNBook, chapter: LNChapter) {
+        let scope: LNReadingScope = source is LNLocalSource ? .local : .nas
+        let record = LNReadingRecord(
+            scope: scope.rawValue,
+            category: book.category.rawValue,
+            bookPath: book.path,
+            bookTitle: book.title,
+            chapterPath: chapter.path,
+            chapterName: chapter.displayName,
+            isVideo: false,
+            timestamp: Date().timeIntervalSince1970
+        )
+        save(record, scope: scope)
+    }
+
+    /// 记录一次电影播放（LNMoviePlayerView 出现即算）
+    static func recordMovie(source: any LNLibrarySource, item: LNMediaItem) {
+        let scope: LNReadingScope = source is LNLocalSource ? .local : .nas
+        let record = LNReadingRecord(
+            scope: scope.rawValue,
+            category: LNCategory.movie.rawValue,
+            bookPath: item.path,
+            bookTitle: item.fileName,
+            chapterPath: nil,
+            chapterName: nil,
+            isVideo: true,
+            timestamp: Date().timeIntervalSince1970
+        )
+        save(record, scope: scope)
+    }
+
+    static func recent(_ scope: LNReadingScope) -> LNReadingRecord? {
+        guard let data = UserDefaults.standard.data(forKey: storageKey(scope)) else { return nil }
+        return try? JSONDecoder().decode(LNReadingRecord.self, from: data)
+    }
+
+    private static func save(_ record: LNReadingRecord, scope: LNReadingScope) {
+        if let data = try? JSONEncoder().encode(record) {
+            UserDefaults.standard.set(data, forKey: storageKey(scope))
+        }
+    }
+}

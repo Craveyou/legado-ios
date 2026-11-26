@@ -11,7 +11,7 @@
 ![iOS 15+](https://img.shields.io/badge/iOS-15%2B-315C50)
 ![Swift](https://img.shields.io/badge/Swift-F05138?logo=swift&logoColor=white)
 [![GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue)](LICENSE)
-[![GitHub Release](https://img.shields.io/badge/Release-b87-315C50?logo=github)](https://github.com/Craveyou/legado-ios/releases)
+[![GitHub Release](https://img.shields.io/badge/Release-b88-315C50?logo=github)](https://github.com/Craveyou/legado-ios/releases)
 
 [下载安装](#下载安装) · [主要功能](#主要功能) · [应用截图](#应用截图) · [书源说明](#书源说明) · [问题反馈](https://github.com/Craveyou/legado-ios/issues)
 
@@ -27,7 +27,7 @@
 
 支持 **iOS / iPadOS 15.0 及以上**。
 
-**[前往 GitHub Releases 下载](https://github.com/Craveyou/legado-ios/releases)** — 当前版本 **b87**（0.1.15 build 87）。请下载附件中的 `.ipa` 文件；`Source code` 是源码压缩包。**未签名 IPA 无法在 iOS 上点击直装**，需经以下任一方式安装：
+**[前往 GitHub Releases 下载](https://github.com/Craveyou/legado-ios/releases)** — 当前版本 **b88**（0.2.1 build 88）。请下载附件中的 `.ipa` 文件；`Source code` 是源码压缩包。**未签名 IPA 无法在 iOS 上点击直装**，需经以下任一方式安装：
 
 ### 方式一：AltStore 订阅源（推荐，安装后可直接在手机端更新）
 
