@@ -25,7 +25,7 @@
           "date": "2026-11-26",
           "localizedDescription": "build 89（0.2.2）：新增隐私与安全功能——「后台模糊」：切到后台或任务切换器时页面内容被遮挡；「面容 ID / 触控 ID 解锁」：启动和切回前台时需通过面容 ID、触控 ID 或设备密码验证（入口在「我的 → 其他设置 → 隐私与安全」）。包含 b88 全部功能。",
           "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b89/Legado-panda-reader-b89-privacy-lock-unsigned.ipa",
-          "size": 27560997,
+          "size": 27572196,
           "minOSVersion": "15.0"
         }
       ],
