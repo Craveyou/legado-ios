@@ -161,7 +161,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: 小浣熊阅读 ${{ env.RELEASE_TAG }} · 未签名 IPA
+          name: 熊猫阅读 ${{ env.RELEASE_TAG }} · 未签名 IPA
           body: |
             ${{ inputs.ipa_name }}
 
