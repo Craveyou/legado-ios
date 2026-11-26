@@ -25,7 +25,7 @@
           "date": "2026-11-26",
           "localizedDescription": "build 91（0.2.4）：移除后台模糊与面容 ID / 触控 ID 解锁（用户要求回滚 b89/b90 的隐私功能），其他设置与阅读功能不变。包含 b88 全部功能。",
           "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b91/Legado-panda-reader-b91-remove-privacy-unsigned.ipa",
-          "size": 27572597,
+          "size": 27560997,
           "minOSVersion": "15.0"
         }
       ],
