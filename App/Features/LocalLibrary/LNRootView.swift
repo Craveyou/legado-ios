@@ -1,4 +1,5 @@
 import SwiftUI
+@preconcurrency import AVFoundation
 
 /// 分类入口视图：漫画 / 整理 / 短剧（本地），NAS 再加一个「电影」。
 /// 本地 tab 与 NAS tab 的 CategoryView 复用同一个组件，只换 source 与 categories。
@@ -110,6 +111,13 @@ struct LNCategoryView: View {
 /// 布局（用户口径）：竖版封面按 3 列走截图那种海报墙；横版封面一排两个。
 /// 宽高比要先解码图片才知道，所以 load() 里把同名封面下载到本地、用 LNImageLoader
 /// 解一次拿到比例，再按竖/横分组；分组只是排版，点击播放链路完全不变。
+///
+/// 封面缓存（b81）：NAS 下载一次后复制到 Caches/ln-posters/<稳定哈希>，
+/// 二次进页面直接用本地文件，不再「列目录 + 重新下载」（NAS download 每次都
+/// 建新 UUID 临时目录，无缓存）。海报格子异步加载：内存缓存命中秒显示，
+/// 没命中后台解码（磁盘缓存文件解码很快）。
+/// 卡片元信息：大小来自 LNNode.size；时长用 streamingVideo 的远端 URL + 认证头
+/// 探测 AVURLAsset 元数据（WebDAV 走 Range 请求很轻；SMB-only 无流式则不显示）。
 struct LNMovieListView: View {
     let source: any LNLibrarySource
 
@@ -120,6 +128,10 @@ struct LNMovieListView: View {
     @State private var covers: [String: URL] = [:]
     /// 视频 path → 封面宽高比（宽/高）；<1 竖版，>=1 横版
     @State private var coverRatios: [String: CGFloat] = [:]
+    /// 视频 path → 文件字节数（LNNode.size）
+    @State private var sizes: [String: Int64] = [:]
+    /// 视频 path → 时长文本（"1:23:45" / "12:34"）；探测失败不显示
+    @State private var durations: [String: String] = [:]
 
     /// 3 列竖版海报（截图样式）
     private let posterColumns = [
@@ -196,37 +208,118 @@ struct LNMovieListView: View {
     private func posterCell(_ movie: LNMediaItem) -> some View {
         let ratio = coverRatios[movie.path] ?? 0.75
         VStack(alignment: .leading, spacing: 6) {
-            Group {
-                if let cover = covers[movie.path],
-                   let loaded = LNImageLoader.shared.cached(cover, maxPixel: 600) {
-                    Image(uiImage: loaded.image)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    // 无封面：胶片占位（不依赖颜色单独传达，有图标）
-                    ZStack {
-                        ReadingTheme.groupedCanvas
-                        Image(systemName: "film")
-                            .font(.system(size: 28, weight: .light))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity)
-            // 用 aspectRatio 而非固定高度：竖版高、横版扁，保留原始海报比例
-            .aspectRatio(ratio > 0 ? ratio : 0.75, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
-            )
+            PosterImageView(coverURL: covers[movie.path])
+                .frame(maxWidth: .infinity)
+                // 用 aspectRatio 而非固定高度：竖版高、横版扁，保留原始海报比例
+                .aspectRatio(ratio > 0 ? ratio : 0.75, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
+                )
 
             Text(movie.fileName)
                 .font(.subheadline)
                 .foregroundStyle(ReadingTheme.ink)
                 .lineLimit(1)
                 .accessibilityLabel(movie.fileName)
+
+            if let meta = metaText(movie) {
+                Text(meta)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
+    }
+
+    /// "1.2 GB · 1:23:45"；两者都没有则不显示这一行
+    private func metaText(_ movie: LNMediaItem) -> String? {
+        var parts: [String] = []
+        if let size = sizes[movie.path], size > 0 {
+            parts.append(Self.formatSize(size))
+        }
+        if let duration = durations[movie.path] {
+            parts.append(duration)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private static func formatSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+
+    /// 海报图：内存缓存命中立即显示；没命中后台解码（封面文件已在磁盘缓存）。
+    /// 之前用同步 `cached` 读取，App 重启后 NSCache 清空 → 永远显示胶片占位。
+    private struct PosterImageView: View {
+        let coverURL: URL?
+
+        @State private var image: UIImage?
+
+        var body: some View {
+            ZStack {
+                ReadingTheme.groupedCanvas
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    // 无封面：胶片占位（不依赖颜色单独传达，有图标）
+                    Image(systemName: "film")
+                        .font(.system(size: 28, weight: .light))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .task(id: coverURL) {
+                guard let coverURL else { return }
+                if let hit = LNImageLoader.shared.cached(coverURL, maxPixel: 600) {
+                    image = hit.image
+                } else if let loaded = await LNImageLoader.shared.load(coverURL, maxPixel: 600) {
+                    image = loaded.image
+                }
+            }
+        }
+    }
+
+    // MARK: - 封面磁盘缓存
+
+    /// 封面磁盘缓存路径：Caches/ln-posters/<rootID+路径的稳定哈希>.<扩展名>。
+    /// NAS 的 download 每次都建新 UUID 临时目录且无缓存，这里落一份固定副本，
+    /// 二次进页面零下载。
+    nonisolated private static func cachedCoverURL(rootID: String, remotePath: String, ext: String) -> URL {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ln-posters", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let suffix = ext.isEmpty ? "img" : ext
+        return dir.appendingPathComponent(stableHash(rootID + "/" + remotePath) + "." + suffix)
+    }
+
+    /// djb2 稳定哈希：String.hashValue 每次启动都变，不能用；无需 crypto 强度
+    nonisolated private static func stableHash(_ string: String) -> String {
+        var hash: UInt64 = 5381
+        for byte in string.utf8 {
+            hash = (hash &* 33) &+ UInt64(byte)
+        }
+        return String(hash, radix: 16)
+    }
+
+    // MARK: - 时长探测
+
+    /// 用流式 URL + 认证头探测视频时长（AVURLAsset 只拉元数据，走 Range 请求很轻）。
+    /// SMB-only 无流式链路时 streamingVideo 返回 nil，跳过（不显示时长）。
+    nonisolated private static func probeDuration(source: any LNLibrarySource, path: String) async -> String? {
+        guard let (url, headers) = try? await source.streamingVideo(for: path) else { return nil }
+        let options: [String: Any] = headers.isEmpty ? [:] : ["AVURLAssetHTTPHeaderFieldsKey": headers]
+        let asset = AVURLAsset(url: url, options: options)
+        guard let seconds = try? await asset.load(.duration).seconds,
+              seconds.isFinite, seconds > 0 else { return nil }
+        let total = Int(seconds.rounded())
+        if total >= 3600 {
+            return String(format: "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
+        }
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 
     private var posterSkeleton: some View {
@@ -252,6 +345,7 @@ struct LNMovieListView: View {
                 .filter { LNScanner.isVideo($0) }
                 .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
             movies = videos.map { LNMediaItem(path: $0.path, fileName: $0.name, kind: .video) }
+            sizes = Dictionary(uniqueKeysWithValues: videos.map { ($0.path, $0.size) })
 
             // 同名封面匹配：去扩展名后完全一致（大小写不敏感），优先常见图片格式
             let images = nodes.filter { LNScanner.isImage($0) }
@@ -262,13 +356,27 @@ struct LNMovieListView: View {
             }
 
             // 并发下载 + 解码封面（只取比例，LNImageLoader 会缓存解码结果）。
-            // 串行 await 在 NAS 上是「每部电影一次列目录+一次下载」，几十部会卡很久。
+            // 封面先落磁盘缓存（Caches/ln-posters），已缓存则直接用本地文件，
+            // NAS 上不再每次「列目录 + 重新下载」——这是二次进页慢的根因。
+            let rootID = source.rootID
             let loadedCovers = await withTaskGroup(of: (String, URL, CGFloat)?.self) { group in
                 for video in videos {
                     let base = ((video.name as NSString).deletingPathExtension as NSString).lowercased
                     guard let coverNode = byBase[base] else { continue }
                     group.addTask {
-                        guard let local = try? await source.localURL(for: coverNode.path) else { return nil }
+                        let ext = (coverNode.name as NSString).pathExtension.lowercased()
+                        let target = Self.cachedCoverURL(rootID: rootID, remotePath: coverNode.path, ext: ext)
+                        let local: URL
+                        if FileManager.default.fileExists(atPath: target.path) {
+                            local = target
+                        } else {
+                            guard let downloaded = try? await source.localURL(for: coverNode.path) else { return nil }
+                            // 落盘固定副本；已存在先删（同名覆盖）
+                            try? FileManager.default.removeItem(at: target)
+                            try? FileManager.default.copyItem(at: downloaded, to: target)
+                            local = target
+                        }
+                        // 解码 + 预热内存缓存，海报格子异步加载时直接命中
                         guard let loaded = await LNImageLoader.shared.load(local, maxPixel: 600) else { return nil }
                         return (video.path, local, loaded.aspectRatio)
                     }
@@ -285,6 +393,16 @@ struct LNMovieListView: View {
             }
             covers = nextCovers
             coverRatios = nextRatios
+
+            // 时长探测不阻塞海报墙：每部视频一个后台任务，逐个回来逐个刷新
+            for video in videos where durations[video.path] == nil {
+                Task {
+                    let value = await Self.probeDuration(source: source, path: video.path)
+                    if let value {
+                        durations[video.path] = value
+                    }
+                }
+            }
         } catch {
             // 只显示 SMB 错误码用户看不出在哪改，把实际探测路径一起报出来
             let path = source.categoryRoot(.movie)
