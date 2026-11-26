@@ -25,7 +25,7 @@
           "date": "2026-11-26",
           "localizedDescription": "build 87：「本地」Tab 更名「合集」并加说明与九宫格图标，NAS Tab 改为四类合集入口页（漫画/整理/短剧/电影），书架/合集/NAS 三个 Tab 均有「继续阅读」栏；NAS 连接管理移至「我的 → NAS 连接」。包含 b86 精简版全部功能。",
           "downloadURL": "https://github.com/Craveyou/legado-ios/releases/download/b87/Legado-panda-reader-b87-collections-unsigned.ipa",
-          "size": 27525542,
+          "size": 27542725,
           "minOSVersion": "15.0"
         }
       ],
